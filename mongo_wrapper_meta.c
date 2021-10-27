@@ -6,6 +6,7 @@
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
+ * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
  * IDENTIFICATION
  * 		mongo_wrapper_meta.c
@@ -242,14 +243,19 @@ MongoDelete(MONGO_CONN *conn, char *database, char *collection, BSON *b)
  *		cursor which can be destroyed by calling mongoc_cursor_current.
  */
 MONGO_CURSOR *
-MongoCursorCreate(MONGO_CONN *conn, char *database, char *collection, BSON *q)
+MongoCursorCreate(MONGO_CONN *conn, char *database, char *collection, BSON *q, bool is_scan_query)
 {
 	mongoc_collection_t *c;
 	MONGO_CURSOR *cur;
 	bson_error_t error;
 
 	c = mongoc_client_get_collection(conn, database, collection);
-	cur = mongoc_collection_find_with_opts(c, q, NULL, NULL);
+	if (is_scan_query)
+		cur = mongoc_collection_aggregate (
+				c, MONGOC_QUERY_NONE, q, NULL, NULL);
+	else
+		cur = mongoc_collection_find_with_opts(c, q, NULL, NULL);
+
 	mongoc_cursor_error(cur, &error);
 	if (!cur)
 		ereport(ERROR,
@@ -736,6 +742,25 @@ DumpJsonArray(StringInfo output, BSON_ITERATOR *iter)
 			bson_free(json);
 		}
 	}
+}
+
+bool
+IsBsonArrayEmpty(BSON_ITERATOR *iter, bool isArray)
+{
+	uint32_t	len;
+	const uint8_t *data;
+	BSON 		bson;
+
+	if (isArray)
+	{
+		bson_iter_array(iter, &len, &data);
+		if (bson_init_static(&bson, data, len))
+		{
+			return bson_empty(&bson);
+		}
+	}
+
+	return false;
 }
 
 char *

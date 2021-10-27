@@ -6,6 +6,7 @@
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
+ * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
  * IDENTIFICATION
  * 		mongo_wrapper.h
@@ -38,7 +39,7 @@ bool MongoUpdate(MONGO_CONN *conn, char *database, char *collection, BSON *b,
 bool MongoDelete(MONGO_CONN *conn, char *database, char *collection,
 				 BSON *b);
 MONGO_CURSOR *MongoCursorCreate(MONGO_CONN *conn, char *database,
-								char *collection, BSON *q);
+								char *collection, BSON *q, bool is_scan_query);
 const BSON *MongoCursorBson(MONGO_CURSOR *c);
 bool MongoCursorNext(MONGO_CURSOR *c, BSON *b);
 void MongoCursorDestroy(MONGO_CURSOR *c);
@@ -108,6 +109,6 @@ void BsonToJsonStringValue(StringInfo output, BSON_ITERATOR *iter,
 						   bool isArray);
 void DumpJsonObject(StringInfo output, BSON_ITERATOR *iter);
 void DumpJsonArray(StringInfo output, BSON_ITERATOR *iter);
-
+bool IsBsonArrayEmpty(BSON_ITERATOR *iter, bool isArray);
 
 #endif					/* MONGO_QUERY_H */
