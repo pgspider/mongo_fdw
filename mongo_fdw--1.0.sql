@@ -2,6 +2,7 @@
 
 -- Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
 -- Portions Copyright © 2012–2014 Citus Data, Inc.
+-- Portions Copyright (c) 2021, TOSHIBA CORPORATION
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION mongo_fdw" to load this file. \quit

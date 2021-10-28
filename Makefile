@@ -25,7 +25,7 @@ OBJS = connection.o option.o  mongo_wrapper.o mongo_fdw.o mongo_query.o $(MONGO_
 EXTENSION = mongo_fdw
 DATA = mongo_fdw--1.0.sql  mongo_fdw--1.1.sql mongo_fdw--1.0--1.1.sql
 
-REGRESS = server_options connection_validation dml select pushdown
+REGRESS = server_options connection_validation dml select pushdown extra/aggregates extra/join extra/json extra/jsonb extra/limit extra/enhance
 REGRESS_OPTS = --load-extension=$(EXTENSION)
 
 $(MONGO_DRIVER)/%.os:

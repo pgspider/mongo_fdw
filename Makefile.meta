@@ -26,7 +26,7 @@ OBJS = connection.o option.o mongo_wrapper_meta.o mongo_fdw.o mongo_query.o $(LI
 EXTENSION = mongo_fdw
 DATA = mongo_fdw--1.0.sql  mongo_fdw--1.1.sql mongo_fdw--1.0--1.1.sql
 
-REGRESS = server_options connection_validation dml select pushdown
+REGRESS = server_options connection_validation dml select pushdown extra/aggregates extra/join extra/json extra/jsonb extra/limit extra/enhance
 REGRESS_OPTS = --load-extension=$(EXTENSION)
 
 #
@@ -34,9 +34,17 @@ REGRESS_OPTS = --load-extension=$(EXTENSION)
 # example: /usr/local/pgsql/bin/pg_config or /usr/lib/postgresql/9.1/bin/pg_config
 #
 
+ifdef USE_PGXS
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+else
+SHLIB_PREREQS = submake-libpq
+subdir = contrib/mongo_fdw
+top_builddir = ../..
+include $(top_builddir)/src/Makefile.global
+include $(top_srcdir)/contrib/contrib-global.mk
+endif
 
 ifndef MAJORVERSION
     MAJORVERSION := $(basename $(VERSION))

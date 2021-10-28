@@ -89,6 +89,22 @@ In order to use MongoDB driver 1.17.0+, take the following steps:
   * if you get an error when trying to `CREATE EXTENSION mongo_fdw;`,
     then try running `ldconfig`
 
+### Pushdown features
+  * Aggregate functions:
+      * `avg`: is converted to `$avg` aggregate function.
+      * `count(*)`: is converted to `{ $sum : 1 }` BSON document.
+      * `max`: is converted to `$max` aggregate function.
+      * `min`: is converted to `$min` aggregate function.
+      * `sum`: is converted to `$sum` aggregate function.
+      * `stddev`: is converted to `$stdDevSamp` aggregate function.
+      * `stddev_pop`: is converted to `$stdDevPop` aggregate function.
+      * `stddev_samp`: is converted to `$stdDevSamp` aggregate function.
+  * LEFT JOIN
+      * The result for NULL comparison of MongoDB is different from PostgreSQL because MongoDB compares NULL value in equal comparison expression, but PostgreSQL does not.
+      * The order for comparing NULL value in MongoDB and PostgreSQL is different ([MongoDB's order][5], [PostgreSQL's order][6])
+  * LIMIT/OFFSET clause
+  * JSON arrow operator (json -> text → json): Extracts JSON object field with the given key
+
 Compilation script
 -----------------
 Number of manual steps needs to be performed to compile and install
@@ -286,6 +302,138 @@ ANALYZE warehouse;
 
 ```
 
+Example for LEFT JOIN with NULL values behavior between PostgreSQL and MongoDB.
+
+PostgreSQL treats a NULL value is larger than a non-NULL value<br>
+but a NULL value is smaller than a non-NULL value in MongoDB.
+```sql
+-- The prepared data on PostgreSQL
+SELECT * FROM postgres_t1;
+ i | j |   t   
+---+---+-------
+ 1 | 4 | one
+ 2 | 3 | two
+ 3 | 2 | three
+ 4 | 1 | for
+ 5 | 0 | five
+ 6 | 7 | six
+ 7 | 7 | seven
+ 8 | 8 | eight
+ 0 |   | zero
+   |   | null
+   | 0 | zero
+(11 rows)
+
+SELECT * FROM postgres_t2;
+ i | k  
+---+----
+ 1 | -1
+ 2 |  2
+ 3 | -3
+ 2 |  4
+ 5 | -5
+ 5 | -5
+ 0 |   
+   |   
+   |  0
+(9 rows)
+
+-- The JOIN result with NULL compare in PostgreSQL:
+SELECT *
+  FROM postgres_t1 LEFT JOIN postgres_t2 USING (i);
+ i | j |   t   | k  
+---+---+-------+----
+ 1 | 4 | one   | -1
+ 2 | 3 | two   |  2
+ 3 | 2 | three | -3
+ 2 | 3 | two   |  4
+ 5 | 0 | five  | -5
+ 5 | 0 | five  | -5
+ 0 |   | zero  |   
+   | 0 | zero  |   
+   |   | null  |   
+ 8 | 8 | eight |   
+ 6 | 7 | six   |   
+ 7 | 7 | seven |   
+ 4 | 1 | for   |   
+(13 rows)
+```
+```batch
+# The prepared data on MongoDB:
+> db.mongo_t1.find();
+{ "i" : 1, "j" : 4, "t" : "one" }
+{ "i" : 2, "j" : 3, "t" : "two" }
+{ "i" : 3, "j" : 2, "t" : "three" }
+{ "i" : 4, "j" : 1, "t" : "for" }
+{ "i" : 5, "j" : 0, "t" : "five" }
+{ "i" : 6, "j" : 7, "t" : "six" }
+{ "i" : 7, "j" : 7, "t" : "seven" }
+{ "i" : 8, "j" : 8, "t" : "eight" }
+{ "i" : 0, "j" : null, "t" : "zero" }
+{ "i" : null, "j" : null, "t" : "null" }
+{ "i" : null, "j" : 0, "t" : "zero" }
+
+> db.mongo_t2.find();
+{ "i" : 1, "k" : -1 }
+{ "i" : 2, "k" : 2 }
+{ "i" : 3, "k" : -3 }
+{ "i" : 2, "k" : 4 }
+{ "i" : 5, "k" : -5 }
+{ "i" : 5, "k" : -5 }
+{ "i" : 0, "k" : null }
+{ "i" : null, "k" : null }
+{ "i" : null, "k" : 0 }
+
+# The JOIN result with NULL compare in MongoDB:
+db.mongo_t1.aggregate([
+    {
+        $lookup:
+        {
+            from: "mongo_t2",
+            let: {ref1: "$i"},
+            pipeline:
+            [
+                {
+                    $match:
+                    {
+                        $expr:
+                        {
+                            $eq:["$i", "$$ref1"]
+                        }
+                    }
+                },
+                {
+                    $project: {_id: 0}
+                }
+            ],
+            as: "mongo_t2" 
+        }
+    },
+    {
+        $unwind: "$mongo_t2" 
+    },
+    {
+        $project:
+        {
+            _id: 0
+        }
+    }
+])
+
+{ "i" : 1, "j" : 4, "t" : "one", "mongo_t2" : { "i" : 1, "k" : -1 } }
+{ "i" : 2, "j" : 3, "t" : "two", "mongo_t2" : { "i" : 2, "k" : 2 } }
+{ "i" : 2, "j" : 3, "t" : "two", "mongo_t2" : { "i" : 2, "k" : 4 } }
+{ "i" : 3, "j" : 2, "t" : "three", "mongo_t2" : { "i" : 3, "k" : -3 } }
+{ "i" : 5, "j" : 0, "t" : "five", "mongo_t2" : { "i" : 5, "k" : -5 } }
+{ "i" : 5, "j" : 0, "t" : "five", "mongo_t2" : { "i" : 5, "k" : -5 } }
+{ "i" : 0, "j" : null, "t" : "zero", "mongo_t2" : { "i" : 0, "k" : null } }
+{ "i" : null, "j" : null, "t" : "null", "mongo_t2" : { "i" : null, "k" : null } }
+{ "i" : null, "j" : null, "t" : "null", "mongo_t2" : { "i" : null, "k" : 0 } }
+{ "i" : null, "j" : 0, "t" : "zero", "mongo_t2" : { "i" : null, "k" : null } }
+{ "i" : null, "j" : 0, "t" : "zero", "mongo_t2" : { "i" : null, "k" : 0 } }
+```
+Based on returned results from PostgreSQL and MongoDB, the returned result in MongoDB contains the value has i = NULL (4 records) but PostgreSQL has 2 records. Two records in PostgreSQL are from LEFT JOIN outter relation.
+
 Limitations
 -----------
 
@@ -297,6 +445,20 @@ Limitations
     default. If you need column names that are longer, you can increase the
     `NAMEDATALEN` constant in `src/include/pg_config_manual.h`, compile,
     and re-install.
+
+  * Filter condition (WHERE/HAVING): Not support for the following cases:
+      * WHERE clause is true/false or any column/expression with boolean type
+      * WHERE clause containing arthmetic operator expression
+      * WHERE clause containing comparing operator inside another comparison expression
+
+  * If PostgreSQL query contains whole-row reference under an outer JOIN, mongo_fdw
+    cannot support it, because there is no way to expose whole-row reference in BSON document.
+    For example SQL:
+    ```sql
+    EXPLAIN VERBOSE select t1.c2, count(t2.*)
+    from ft1 t1 left join ft1 t2 on (t1.c2 = t2.c1)
+    group by t1.c2 order by 1;
+    ```
 
 
 Contributing
@@ -331,3 +493,5 @@ See the [`LICENSE`][4] file for full details.
 [2]: https://github.com/enterprisedb/mongo_fdw/issues/new
 [3]: CONTRIBUTING.md
 [4]: LICENSE
+[5]: https://docs.mongodb.com/v4.4/reference/bson-type-comparison-order/
+[6]: https://www.postgresql.org/docs/current/functions-comparisons.html

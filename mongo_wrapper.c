@@ -6,6 +6,7 @@
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
+ * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
  * IDENTIFICATION
  * 		mongo_wrapper.c
@@ -113,7 +114,7 @@ MongoDelete(MONGO_CONN *conn, char *database, char *collection, BSON *b)
 }
 
 MONGO_CURSOR *
-MongoCursorCreate(MONGO_CONN *conn, char *database, char *collection, BSON *q)
+MongoCursorCreate(MONGO_CONN *conn, char *database, char *collection, BSON *q, bool is_scan_query)
 {
 	MONGO_CURSOR *c;
 	char		qual[QUAL_STRING_LEN];

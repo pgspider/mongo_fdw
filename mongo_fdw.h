@@ -6,6 +6,7 @@
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
  * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
+ * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
  * IDENTIFICATION
  * 		mongo_fdw.h
@@ -171,6 +172,33 @@
 #define POSTGRES_TO_UNIX_EPOCH_USECS 		(POSTGRES_TO_UNIX_EPOCH_DAYS * USECS_PER_DAY)
 
 /*
+ * Define macro to convert data type.
+ */
+#define MONGO_BSON_CONVERSION_DATA_TYPE(iter, pgTypeId, bsonType, val, type_val) \
+{ \
+	switch (bsonType) \
+	{ \
+		case BSON_TYPE_INT32: \
+			val = (type_val) BsonIterInt32(iter); \
+			break; \
+		case BSON_TYPE_INT64: \
+			val = (type_val) BsonIterInt64(iter); \
+			break; \
+		case BSON_TYPE_DOUBLE: \
+			val = (type_val) BsonIterDouble(iter); \
+			break; \
+		case BSON_TYPE_BOOL: \
+			val = (type_val) ((BsonIterBool(iter)) ? true : false); \
+			break; \
+		default: \
+			ereport(ERROR, \
+				(errcode(ERRCODE_FDW_INVALID_DATA_TYPE), \
+				errmsg("cannot convert BSON type to column type"), \
+				errhint("Column type: %u", (uint32) pgTypeId))); \
+	} \
+}
+
+/*
  * MongoValidOption keeps an option name and a context.  When an option is
  * passed into mongo_fdw objects (server and foreign table), we compare this
  * option's name and context against those of valid options.
@@ -242,6 +270,57 @@ typedef struct MongoFdwOptions
 #endif
 } MongoFdwOptions;
 
+typedef struct MongoPlanerJoinInfo
+{
+	Index		outerrel_relid;	/* Index of outer relation in range table entry */
+	Index		innerrel_relid; /* Index of inner relation in range table entry */
+	/* joinclauses contains only JOIN/ON conditions for an outer join */
+	List	   *joinclauses;	/* List of RestrictInfo */
+	char	   *innerel_name;	/* Name of inner relation */
+	char	   *outerrel_name;	/* Name of outer relation */
+} MongoPlanerJoinInfo;
+
+/*
+ * The planner information is passed to execution stage
+ * to build query document.
+ */
+typedef struct MongoPlanerInfo
+{
+	List	   *tlist;	/* Target list */
+	List	   *retrieved_attrs;
+
+	bool	   tlist_has_jsonb_arrow_op; /* True if tlist has jsonb arrow operator pushdown */
+
+	Index	   rtindex;			/* Index of relation in range table entry */
+	Oid		   rel_oid;			/* OID of the relation */
+	RelOptKind reloptkind;		/* Relation kind of the foreign relation we are planning for */
+
+	List	   *remote_exprs;	/* Remote conditions are applied for WHERE */
+	List	   *local_exprs;	/* Local conditions are applied for WHERE */
+	List	   *having_quals;	/* qualifications applied for HAVING to groups */
+
+	bool	   has_limit;		/* Has LIMIT query */
+	Node	   *limitOffset;	/* # of result tuples to skip (int8 expr) */
+	Node	   *limitCount;		/* # of result tuples to return (int8 expr) */
+
+	/* Bitmap of attr numbers we need to fetch from the remote server. */
+	Bitmapset *attrs_used;
+
+	/* List expression to be computed by Pathtarget */
+	List	   *ptarget_exprs;
+
+	bool	   has_groupClause;	/* True if having GROUP clause */
+	bool	   has_grouping_agg;	/* True if query has having GROUP clause, aggregation */
+
+	RelOptKind scan_reloptkind;	/* Relation kind of the underlying scan relation. Same as
+								 * reloptkind, when that represents a join or
+								 * a base relation. */
+	/* JOIN information */
+	JoinType   jointype;
+	int		   joininfo_num;	/* Length of joininfo_list */
+	List	   *joininfo_list;	/* This is list of join information that contains MongoPlanerJoinInfo */
+} MongoPlanerInfo;
+
 /*
  * MongoFdwExecState keeps foreign data wrapper specific execution state that
  * we create and hold onto when executing the query.
@@ -257,8 +336,6 @@ typedef struct MongoFdwModifyState
 	int			p_nums;			/* number of parameters to transmit */
 	FmgrInfo   *p_flinfo;		/* output conversion functions for them */
 
-	struct HTAB *columnMappingHash;
-
 	MONGO_CONN *mongoConnection;	/* MongoDB connection */
 	MONGO_CURSOR *mongoCursor;	/* MongoDB cursor */
 	BSON	   *queryDocument;	/* Bson Document */
@@ -266,6 +343,23 @@ typedef struct MongoFdwModifyState
 	MongoFdwOptions *options;
 	AttrNumber	rowidAttno; 	/* attnum of resjunk rowid column */
 } MongoFdwModifyState;
+
+/*
+ * Execution state of a foreign scan using mongo_fdw.
+ */
+typedef struct MongoFdwScanState
+{
+	Relation	rel;			/* relcache entry for the foreign table */
+
+	MONGO_CONN *mongoConnection;	/* MongoDB connection */
+	MONGO_CURSOR *mongoCursor;	/* MongoDB cursor */
+	BSON	   *queryDocument;	/* Bson Document */
+
+	MongoFdwOptions *options;
+
+	/* All necessary planner information to build query document */
+	MongoPlanerInfo *plannerInfo;
+} MongoFdwScanState;
 
 /*
  * ColumnMapping reprents a hash table entry that maps a column name to column
@@ -290,9 +384,34 @@ typedef struct ColumnMapping
  */
 typedef struct MongoFdwRelationInfo
 {
+	/*
+	 * True means that the relation can be pushed down. Always true for simple
+	 * foreign scan.
+	 */
+	bool	   pushdown_safe;
+
 	/* baserestrictinfo clauses, broken down into safe and unsafe subsets. */
 	List	   *local_conds;
 	List	   *remote_conds;
+
+	/* Join information */
+	RelOptInfo *outerrel;
+	RelOptInfo *innerrel;
+	JoinType	jointype;
+	/* joinclauses contains only JOIN/ON conditions for an outer join */
+	List	   *joinclauses;	/* List of RestrictInfo */
+
+	/* Upper relation information */
+	UpperRelationKind stage;
+
+	/* Grouping information */
+	List	   *grouped_tlist;
+
+	/*
+	 * Index of the relation.  It is used to create an alias to a subquery
+	 * representing the relation.
+	 */
+	int			relation_index;
 } MongoFdwRelationInfo;
 
 /* options.c */
@@ -321,5 +440,8 @@ extern bool mongo_is_foreign_expr(PlannerInfo *root, RelOptInfo *baserel,
 /* Function declarations for foreign data wrapper */
 extern Datum mongo_fdw_handler(PG_FUNCTION_ARGS);
 extern Datum mongo_fdw_validator(PG_FUNCTION_ARGS);
+
+extern int mongo_set_transmission_modes(void);
+extern void mongo_reset_transmission_modes(int nestlevel);
 
 #endif							/* MONGO_FDW_H */

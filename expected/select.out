@@ -1,17 +1,18 @@
-\set MONGO_HOST			`echo \'"$MONGO_HOST"\'`
-\set MONGO_PORT			`echo \'"$MONGO_PORT"\'`
-\set MONGO_USER_NAME	`echo \'"$MONGO_USER_NAME"\'`
-\set MONGO_PASS			`echo \'"$MONGO_PWD"\'`
 -- Before running this file User must create database mongo_fdw_regress and
 -- mongo_fdw_regress1 databases on MongoDB with all permission for
 -- MONGO_USER_NAME user with MONGO_PASS password and ran mongodb_init.sh file
 -- to load collections.
+\set ECHO none
 \c contrib_regression
+--Testcase 1:
 CREATE EXTENSION IF NOT EXISTS mongo_fdw;
+--Testcase 2:
 CREATE SERVER mongo_server FOREIGN DATA WRAPPER mongo_fdw
   OPTIONS (address :MONGO_HOST, port :MONGO_PORT);
+--Testcase 3:
 CREATE USER MAPPING FOR public SERVER mongo_server;
 -- Check version
+--Testcase 4:
 SELECT mongo_fdw_version();
  mongo_fdw_version 
 -------------------
@@ -19,28 +20,40 @@ SELECT mongo_fdw_version();
 (1 row)
 
 -- Create foreign tables
+--Testcase 5:
 CREATE FOREIGN TABLE f_mongo_test (_id name, a int, b text)
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'mongo_test');
+--Testcase 6:
 CREATE FOREIGN TABLE f_test_tbl1 (_id NAME, c1 INTEGER, c2 VARCHAR(10), c3 CHAR(9),c4 INTEGER, c5 pg_catalog.Date, c6 DECIMAL, c7 INTEGER, c8 INTEGER)
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'test_tbl1');
+--Testcase 7:
 CREATE FOREIGN TABLE f_test_tbl2 (_id NAME, c1 INTEGER, c2 VARCHAR(14), c3 VARCHAR(13))
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'test_tbl2');
+--Testcase 8:
 CREATE FOREIGN TABLE countries (_id NAME, name VARCHAR, population INTEGER, capital VARCHAR, hdi FLOAT)
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'countries');
+--Testcase 9:
 CREATE FOREIGN TABLE country_elections (_id NAME, "lastElections.type" VARCHAR, "lastElections.date" pg_catalog.TIMESTAMP)
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'countries');
+--Testcase 10:
 CREATE FOREIGN TABLE main_exports (_id NAME, "mainExports" TEXT[] )
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'countries');
+--Testcase 11:
 CREATE FOREIGN TABLE test_json ( __doc json)
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'warehouse');
+--Testcase 12:
 CREATE FOREIGN TABLE test_jsonb ( __doc jsonb)
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'warehouse');
+--Testcase 13:
 CREATE FOREIGN TABLE test_text ( __doc text)
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'warehouse');
+--Testcase 14:
 CREATE FOREIGN TABLE test_varchar ( __doc varchar)
   SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'warehouse');
+--Testcase 15:
 SET datestyle TO ISO;
 -- Retrieve data from foreign table using SELECT statement.
+--Testcase 16:
 SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1
   ORDER BY c1 DESC, c8;
   c1  |  c2   |    c3     |  c4  |     c5     |   c6    |  c7  | c8 
@@ -61,6 +74,7 @@ SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1
   100 | EMP1  | ADMIN     | 1300 | 1980-12-17 |   800.3 |    0 | 20
 (14 rows)
 
+--Testcase 17:
 SELECT DISTINCT c8 FROM f_test_tbl1 ORDER BY 1;
  c8 
 ----
@@ -69,6 +83,7 @@ SELECT DISTINCT c8 FROM f_test_tbl1 ORDER BY 1;
  30
 (3 rows)
 
+--Testcase 18:
 SELECT c2 AS "Employee Name" FROM f_test_tbl1 ORDER BY c2 COLLATE "C";
  Employee Name 
 ---------------
@@ -88,6 +103,7 @@ SELECT c2 AS "Employee Name" FROM f_test_tbl1 ORDER BY c2 COLLATE "C";
  EMP9
 (14 rows)
 
+--Testcase 19:
 SELECT c8, c6, c7 FROM f_test_tbl1 ORDER BY 1, 2, 3;
  c8 |   c6    |  c7  
 ----+---------+------
@@ -107,6 +123,7 @@ SELECT c8, c6, c7 FROM f_test_tbl1 ORDER BY 1, 2, 3;
  30 |    2850 |    0
 (14 rows)
 
+--Testcase 20:
 SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1
   WHERE c1 = 100 ORDER BY 1;
  c1  |  c2  |    c3     |  c4  |     c5     |  c6   | c7 | c8 
@@ -114,6 +131,7 @@ SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1
  100 | EMP1 | ADMIN     | 1300 | 1980-12-17 | 800.3 |  0 | 20
 (1 row)
 
+--Testcase 21:
 SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1
   WHERE c1 = 100 OR c1 = 700 ORDER BY 1;
  c1  |  c2  |    c3     |  c4  |     c5     |   c6    | c7 | c8 
@@ -122,11 +140,13 @@ SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1
  700 | EMP7 | MANAGER   |  900 | 1981-06-09 | 2450.34 |  0 | 10
 (2 rows)
 
+--Testcase 22:
 SELECT c1, c2, c3 FROM f_test_tbl1 WHERE c3 like 'SALESMAN' ORDER BY 1;
  c1 | c2 | c3 
 ----+----+----
 (0 rows)
 
+--Testcase 23:
 SELECT c1, c2, c3 FROM f_test_tbl1 WHERE c1 IN (100, 700) ORDER BY 1;
  c1  |  c2  |    c3     
 -----+------+-----------
@@ -134,6 +154,7 @@ SELECT c1, c2, c3 FROM f_test_tbl1 WHERE c1 IN (100, 700) ORDER BY 1;
  700 | EMP7 | MANAGER  
 (2 rows)
 
+--Testcase 24:
 SELECT c1, c2, c3 FROM f_test_tbl1 WHERE c1 NOT IN (100, 700) ORDER BY 1 LIMIT 5;
  c1  |  c2  |    c3     
 -----+------+-----------
@@ -144,6 +165,7 @@ SELECT c1, c2, c3 FROM f_test_tbl1 WHERE c1 NOT IN (100, 700) ORDER BY 1 LIMIT 5
  600 | EMP6 | MANAGER  
 (5 rows)
 
+--Testcase 25:
 SELECT c1, c2, c8 FROM f_test_tbl1 WHERE c8 BETWEEN 10 AND 20 ORDER BY 1;
   c1  |  c2   | c8 
 ------+-------+----
@@ -157,6 +179,7 @@ SELECT c1, c2, c8 FROM f_test_tbl1 WHERE c8 BETWEEN 10 AND 20 ORDER BY 1;
  1400 | EMP14 | 10
 (8 rows)
 
+--Testcase 26:
 SELECT c1, c2, c6 FROM f_test_tbl1 ORDER BY 1 OFFSET 5;
   c1  |  c2   |   c6    
 ------+-------+---------
@@ -172,6 +195,7 @@ SELECT c1, c2, c6 FROM f_test_tbl1 ORDER BY 1 OFFSET 5;
 (9 rows)
 
 -- Retrieve data from foreign table using group by clause.
+--Testcase 27:
 SELECT c8 "Department", COUNT(c1) "Total Employees" FROM f_test_tbl1
   GROUP BY c8 ORDER BY c8;
  Department | Total Employees 
@@ -181,6 +205,7 @@ SELECT c8 "Department", COUNT(c1) "Total Employees" FROM f_test_tbl1
          30 |               6
 (3 rows)
 
+--Testcase 28:
 SELECT c8, SUM(c6) FROM f_test_tbl1
   GROUP BY c8 HAVING c8 IN (10, 30) ORDER BY c8;
  c8 |   sum   
@@ -189,6 +214,7 @@ SELECT c8, SUM(c6) FROM f_test_tbl1
  30 | 9400.23
 (2 rows)
 
+--Testcase 29:
 SELECT c8, SUM(c6) FROM f_test_tbl1
   GROUP BY c8 HAVING SUM(c6) > 9400 ORDER BY c8;
  c8 |   sum   
@@ -198,6 +224,7 @@ SELECT c8, SUM(c6) FROM f_test_tbl1
 (2 rows)
 
 -- Retrieve data from foreign table using sub-queries.
+--Testcase 30:
 SELECT c1, c2, c6 FROM f_test_tbl1
   WHERE c8 <> ALL (SELECT c1 FROM f_test_tbl2 WHERE c1 IN (10, 30, 40))
   ORDER BY c1;
@@ -210,6 +237,7 @@ SELECT c1, c2, c6 FROM f_test_tbl1
  1300 | EMP13 |  3000
 (5 rows)
 
+--Testcase 31:
 SELECT c1, c2, c3 FROM f_test_tbl2
   WHERE EXISTS (SELECT 1 FROM f_test_tbl1 WHERE f_test_tbl2.c1 = f_test_tbl1.c8)
   ORDER BY 1, 2;
@@ -220,6 +248,7 @@ SELECT c1, c2, c3 FROM f_test_tbl2
  30 | SALES          | MUMBAI
 (3 rows)
 
+--Testcase 32:
 SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1
   WHERE c8 NOT IN (SELECT c1 FROM f_test_tbl2) ORDER BY c1;
  c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 
@@ -227,6 +256,7 @@ SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1
 (0 rows)
 
 -- Retrieve data from foreign table using UNION operator.
+--Testcase 33:
 SELECT c1, c2 FROM f_test_tbl2 UNION
 SELECT c1, c2 FROM f_test_tbl1 ORDER BY c1;
   c1  |       c2       
@@ -251,6 +281,7 @@ SELECT c1, c2 FROM f_test_tbl1 ORDER BY c1;
  1400 | EMP14
 (18 rows)
 
+--Testcase 34:
 SELECT c1, c2 FROM f_test_tbl2 UNION ALL
 SELECT c1, c2 FROM f_test_tbl1 ORDER BY c1;
   c1  |       c2       
@@ -276,6 +307,7 @@ SELECT c1, c2 FROM f_test_tbl1 ORDER BY c1;
 (18 rows)
 
 -- Retrieve data from foreign table using INTERSECT operator.
+--Testcase 35:
 SELECT c1, c2 FROM f_test_tbl1 WHERE c1 >= 800 INTERSECT
 SELECT c1, c2 FROM f_test_tbl1 WHERE c1 >= 400 ORDER BY c1;
   c1  |  c2   
@@ -289,6 +321,7 @@ SELECT c1, c2 FROM f_test_tbl1 WHERE c1 >= 400 ORDER BY c1;
  1400 | EMP14
 (7 rows)
 
+--Testcase 36:
 SELECT c1, c2 FROM f_test_tbl1 WHERE c1 >= 800 INTERSECT ALL
 SELECT c1, c2 FROM f_test_tbl1 WHERE c1 >= 400 ORDER BY c1;
   c1  |  c2   
@@ -303,6 +336,7 @@ SELECT c1, c2 FROM f_test_tbl1 WHERE c1 >= 400 ORDER BY c1;
 (7 rows)
 
 -- Retrieve data from foreign table using EXCEPT operator.
+--Testcase 37:
 SELECT c1, c2 FROM f_test_tbl1 EXCEPT
 SELECT c1, c2 FROM f_test_tbl1 WHERE c1 > 900 ORDER BY c1;
  c1  |  c2  
@@ -318,6 +352,7 @@ SELECT c1, c2 FROM f_test_tbl1 WHERE c1 > 900 ORDER BY c1;
  900 | EMP9
 (9 rows)
 
+--Testcase 38:
 SELECT c1, c2 FROM f_test_tbl1 EXCEPT ALL
 SELECT c1, c2 FROM f_test_tbl1 WHERE c1 > 900 ORDER BY c1;
  c1  |  c2  
@@ -334,6 +369,7 @@ SELECT c1, c2 FROM f_test_tbl1 WHERE c1 > 900 ORDER BY c1;
 (9 rows)
 
 -- Retrieve data from foreign table using CTE (with clause).
+--Testcase 39:
 WITH
   with_qry AS (SELECT c1, c2, c3 FROM f_test_tbl2)
 SELECT e.c2, e.c6, w.c1, w.c2 FROM f_test_tbl1 e, with_qry w
@@ -356,6 +392,7 @@ SELECT e.c2, e.c6, w.c1, w.c2 FROM f_test_tbl1 e, with_qry w
  EMP6  |    2850 | 30 | SALES
 (14 rows)
 
+--Testcase 40:
 WITH
   test_tbl2_costs AS (SELECT d.c2, SUM(c6) test_tbl2_total FROM f_test_tbl1 e, f_test_tbl2 d
     WHERE e.c8 = d.c1 GROUP BY 1),
@@ -368,6 +405,7 @@ SELECT * FROM test_tbl2_costs
 (1 row)
 
 -- Retrieve data from foreign table using window clause.
+--Testcase 41:
 SELECT c8, c1, c6, AVG(c6) OVER (PARTITION BY c8) FROM f_test_tbl1
   ORDER BY c8, c1;
  c8 |  c1  |   c6    |          avg          
@@ -388,6 +426,7 @@ SELECT c8, c1, c6, AVG(c6) OVER (PARTITION BY c8) FROM f_test_tbl1
  30 | 1200 |     950 | 1566.7050000000000000
 (14 rows)
 
+--Testcase 42:
 SELECT c8, c1, c6, COUNT(c6) OVER (PARTITION BY c8) FROM f_test_tbl1
   WHERE c8 IN (10, 30, 40, 50, 60, 70) ORDER BY c8, c1;
  c8 |  c1  |   c6    | count 
@@ -403,6 +442,7 @@ SELECT c8, c1, c6, COUNT(c6) OVER (PARTITION BY c8) FROM f_test_tbl1
  30 | 1200 |     950 |     6
 (9 rows)
 
+--Testcase 43:
 SELECT c8, c1, c6, SUM(c6) OVER (PARTITION BY c8) FROM f_test_tbl1
   ORDER BY c8, c1;
  c8 |  c1  |   c6    |   sum   
@@ -424,8 +464,10 @@ SELECT c8, c1, c6, SUM(c6) OVER (PARTITION BY c8) FROM f_test_tbl1
 (14 rows)
 
 -- Views
+--Testcase 44:
 CREATE VIEW smpl_vw AS
   SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1 ORDER BY c1;
+--Testcase 45:
 SELECT * FROM smpl_vw ORDER BY 1;
   c1  |  c2   |    c3     |  c4  |     c5     |   c6    |  c7  | c8 
 ------+-------+-----------+------+------------+---------+------+----
@@ -445,10 +487,12 @@ SELECT * FROM smpl_vw ORDER BY 1;
  1400 | EMP14 | ADMIN     |  700 | 1982-01-23 |    1300 |    0 | 10
 (14 rows)
 
+--Testcase 46:
 CREATE VIEW comp_vw (s1, s2, s3, s6, s7, s8, d2) AS
   SELECT s.c1, s.c2, s.c3, s.c6, s.c7, s.c8, d.c2
     FROM f_test_tbl2 d, f_test_tbl1 s WHERE d.c1 = s.c8 AND d.c1 = 10
     ORDER BY s.c1;
+--Testcase 47:
 SELECT * FROM comp_vw ORDER BY 1;
   s1  |  s2   |    s3     |   s6    | s7 | s8 |     d2      
 ------+-------+-----------+---------+----+----+-------------
@@ -457,8 +501,10 @@ SELECT * FROM comp_vw ORDER BY 1;
  1400 | EMP14 | ADMIN     |    1300 |  0 | 10 | DEVELOPMENT
 (3 rows)
 
+--Testcase 48:
 CREATE TEMPORARY VIEW temp_vw AS
   SELECT c1, c2, c3 FROM f_test_tbl2;
+--Testcase 49:
 SELECT * FROM temp_vw ORDER BY 1, 2;
  c1 |       c2       |    c3    
 ----+----------------+----------
@@ -468,9 +514,11 @@ SELECT * FROM temp_vw ORDER BY 1, 2;
  40 | HR             | NAGPUR
 (4 rows)
 
+--Testcase 50:
 CREATE VIEW mul_tbl_view AS
   SELECT d.c1 dc1, d.c2 dc2, e.c1 ec1, e.c2 ec2, e.c6 ec6
     FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY d.c1;
+--Testcase 51:
 SELECT * FROM mul_tbl_view ORDER BY 1, 2, 3;
  dc1 |      dc2       | ec1  |  ec2  |   ec6   
 -----+----------------+------+-------+---------
@@ -492,6 +540,7 @@ SELECT * FROM mul_tbl_view ORDER BY 1, 2, 3;
 
 -- Foreign-Foreign table joins
 -- CROSS JOIN.
+--Testcase 52:
 SELECT f_test_tbl2.c2, f_test_tbl1.c2
   FROM f_test_tbl2 CROSS JOIN f_test_tbl1 ORDER BY 1, 2;
        c2       |  c2   
@@ -555,6 +604,7 @@ SELECT f_test_tbl2.c2, f_test_tbl1.c2
 (56 rows)
 
 -- INNER JOIN.
+--Testcase 53:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d, f_test_tbl1 e WHERE d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -575,6 +625,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
  30 | SALES          | 1200 | EMP12 |     950 | 30
 (14 rows)
 
+--Testcase 54:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -596,6 +647,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
 (14 rows)
 
 -- OUTER JOINS.
+--Testcase 55:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -617,6 +669,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
  40 | HR             |      |       |         |   
 (15 rows)
 
+--Testcase 56:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -637,6 +690,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
  30 | SALES          | 1200 | EMP12 |     950 | 30
 (14 rows)
 
+--Testcase 57:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d FULL OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -659,11 +713,14 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
 (15 rows)
 
 -- Local-Foreign table joins.
+--Testcase 58:
 CREATE TABLE l_test_tbl1 AS
   SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1;
+--Testcase 59:
 CREATE TABLE l_test_tbl2 AS
   SELECT c1, c2, c3 FROM f_test_tbl2;
 -- CROSS JOIN.
+--Testcase 60:
 SELECT f_test_tbl2.c2, l_test_tbl1.c2 FROM f_test_tbl2 CROSS JOIN l_test_tbl1 ORDER BY 1, 2;
        c2       |  c2   
 ----------------+-------
@@ -726,6 +783,7 @@ SELECT f_test_tbl2.c2, l_test_tbl1.c2 FROM f_test_tbl2 CROSS JOIN l_test_tbl1 OR
 (56 rows)
 
 -- INNER JOIN.
+--Testcase 61:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM l_test_tbl2 d, f_test_tbl1 e WHERE d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -746,6 +804,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
  30 | SALES          | 1200 | EMP12 |     950 | 30
 (14 rows)
 
+--Testcase 62:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d INNER JOIN l_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -767,6 +826,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
 (14 rows)
 
 -- OUTER JOINS.
+--Testcase 63:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d LEFT OUTER JOIN l_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -788,6 +848,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
  40 | HR             |      |       |         |   
 (15 rows)
 
+--Testcase 64:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d RIGHT OUTER JOIN l_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -808,6 +869,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
  30 | SALES          | 1200 | EMP12 |     950 | 30
 (14 rows)
 
+--Testcase 65:
 SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
   FROM f_test_tbl2 d FULL OUTER JOIN l_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
  c1 |       c2       |  c1  |  c2   |   c6    | c8 
@@ -830,6 +892,7 @@ SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
 (15 rows)
 
 -- Retrieve complex data containing Sub-fields, dates, Arrays
+--Testcase 66:
 SELECT * FROM countries ORDER BY _id;
            _id            |  name   | population | capital  |  hdi  
 --------------------------+---------+------------+----------+-------
@@ -838,14 +901,16 @@ SELECT * FROM countries ORDER BY _id;
  5381ccf9d6d81c8e8bf04351 | Moldova |    3560000 | Chișinău |  0.66
 (3 rows)
 
+--Testcase 67:
 SELECT * FROM country_elections ORDER BY _id;
            _id            | lastElections.type | lastElections.date  
 --------------------------+--------------------+---------------------
  5381ccf9d6d81c8e8bf0434f | presidential       | 2014-05-25 00:00:00
- 5381ccf9d6d81c8e8bf04350 | parliamentary      | 2011-10-09 00:00:00
+ 5381ccf9d6d81c8e8bf04350 | presidential       | 2014-05-25 00:00:00
  5381ccf9d6d81c8e8bf04351 | parliamentary      | 2010-11-28 00:00:00
 (3 rows)
 
+--Testcase 68:
 SELECT * FROM main_exports ORDER BY _id;
            _id            |                                                                                         mainExports                                                                                         
 --------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -855,6 +920,7 @@ SELECT * FROM main_exports ORDER BY _id;
 (3 rows)
 
 -- Retrieve complex data containing Json objects (__doc tests)
+--Testcase 69:
 SELECT json_data.key AS key1, json_data.value AS value1
   FROM test_json, json_each_text(test_json.__doc) AS json_data
   WHERE key NOT IN ('_id') ORDER BY json_data.key COLLATE "C";
@@ -868,6 +934,7 @@ SELECT json_data.key AS key1, json_data.value AS value1
  warehouse_name    | Laptop
 (6 rows)
 
+--Testcase 70:
 SELECT json_data.key AS key1, json_data.value AS value1
   FROM test_jsonb, jsonb_each_text(test_jsonb.__doc) AS json_data
   WHERE key NOT IN ('_id') ORDER BY json_data.key COLLATE "C";
@@ -881,6 +948,7 @@ SELECT json_data.key AS key1, json_data.value AS value1
  warehouse_name    | Laptop
 (6 rows)
 
+--Testcase 71:
 SELECT json_data.key AS key1, json_data.value AS value1
   FROM test_text, json_each_text(test_text.__doc::json) AS json_data
   WHERE key NOT IN ('_id') ORDER BY json_data.key COLLATE "C";
@@ -894,6 +962,7 @@ SELECT json_data.key AS key1, json_data.value AS value1
  warehouse_name    | Laptop
 (6 rows)
 
+--Testcase 72:
 SELECT json_data.key AS key1, json_data.value AS value1
   FROM test_varchar, json_each_text(test_varchar.__doc::json) AS json_data
   WHERE key NOT IN ('_id') ORDER BY json_data.key COLLATE "C";
@@ -908,28 +977,41 @@ SELECT json_data.key AS key1, json_data.value AS value1
 (6 rows)
 
 -- Inserts some values in mongo_test collection.
+--Testcase 73:
 INSERT INTO f_mongo_test VALUES ('0', 1, 'One');
+--Testcase 74:
 INSERT INTO f_mongo_test VALUES ('0', 2, 'Two');
+--Testcase 75:
 INSERT INTO f_mongo_test VALUES ('0', 3, 'Three');
+--Testcase 76:
 INSERT INTO f_mongo_test VALUES ('0', 4, 'Four');
+--Testcase 77:
 INSERT INTO f_mongo_test VALUES ('0', 5, 'Five');
+--Testcase 78:
 INSERT INTO f_mongo_test VALUES ('0', 6, 'Six');
+--Testcase 79:
 INSERT INTO f_mongo_test VALUES ('0', 7, 'Seven');
+--Testcase 80:
 INSERT INTO f_mongo_test VALUES ('0', 8, 'Eight');
+--Testcase 81:
 INSERT INTO f_mongo_test VALUES ('0', 9, 'Nine');
+--Testcase 82:
 INSERT INTO f_mongo_test VALUES ('0', 10, 'Ten');
 -- Retrieve Data From foreign tables in functions.
+--Testcase 83:
 CREATE OR REPLACE FUNCTION test_param_where() RETURNS void AS $$
 DECLARE
   n varchar;
 BEGIN
   FOR x IN 1..9 LOOP
+--Testcase 84:
     SELECT b INTO n FROM f_mongo_test WHERE a = x;
     RAISE NOTICE 'Found number %', n;
   END LOOP;
   return;
 END
 $$ LANGUAGE plpgsql;
+--Testcase 85:
 SELECT test_param_where();
 NOTICE:  Found number One
 NOTICE:  Found number Two
@@ -946,12 +1028,14 @@ NOTICE:  Found number Nine
 (1 row)
 
 -- FDW-103: Parameter expression should work correctly with WHERE clause.
+--Testcase 86:
 SELECT a, b FROM f_mongo_test WHERE a = (SELECT 2) ORDER BY a;
  a |  b  
 ---+-----
  2 | Two
 (1 row)
 
+--Testcase 87:
 SELECT a, b FROM f_mongo_test WHERE b = (SELECT 'Seven'::text) ORDER BY a;
  a |   b   
 ---+-------
@@ -959,8 +1043,10 @@ SELECT a, b FROM f_mongo_test WHERE b = (SELECT 'Seven'::text) ORDER BY a;
 (1 row)
 
 -- Create local table and load data into it.
+--Testcase 88:
 CREATE TABLE l_mongo_test AS SELECT a, b FROM f_mongo_test;
 -- Check correlated query.
+--Testcase 89:
 SELECT a, b FROM l_mongo_test lt
   WHERE lt.b = (SELECT b FROM f_mongo_test ft WHERE lt.b = ft.b)
   ORDER BY a;
@@ -979,6 +1065,7 @@ SELECT a, b FROM l_mongo_test lt
  10 | Ten
 (11 rows)
 
+--Testcase 90:
 SELECT a, b FROM l_mongo_test lt
   WHERE lt.a = (SELECT a FROM f_mongo_test ft WHERE lt.a = ft.a)
   ORDER BY a;
@@ -997,6 +1084,7 @@ SELECT a, b FROM l_mongo_test lt
  10 | Ten
 (11 rows)
 
+--Testcase 91:
 SELECT c1, c8 FROM f_test_tbl1 ft1
   WHERE ft1.c8 = (SELECT c1 FROM f_test_tbl2 ft2 WHERE ft1.c8 = ft2.c1)
   ORDER BY c1 LIMIT 2;
@@ -1007,6 +1095,7 @@ SELECT c1, c8 FROM f_test_tbl1 ft1
 (2 rows)
 
 -- FDW-197: Casting target list should give correct result.
+--Testcase 92:
 SELECT a::float FROM f_mongo_test ORDER BY a LIMIT 2;
  a 
 ---
@@ -1014,6 +1103,7 @@ SELECT a::float FROM f_mongo_test ORDER BY a LIMIT 2;
  1
 (2 rows)
 
+--Testcase 93:
 SELECT a::boolean FROM f_mongo_test ORDER BY a LIMIT 2;
  a 
 ---
@@ -1021,6 +1111,7 @@ SELECT a::boolean FROM f_mongo_test ORDER BY a LIMIT 2;
  t
 (2 rows)
 
+--Testcase 94:
 SELECT a, b::varchar FROM f_mongo_test ORDER BY a LIMIT 3;
  a |           b           
 ---+-----------------------
@@ -1029,6 +1120,7 @@ SELECT a, b::varchar FROM f_mongo_test ORDER BY a LIMIT 3;
  2 | Two
 (3 rows)
 
+--Testcase 95:
 SELECT a::float, b::varchar FROM f_mongo_test ORDER BY a LIMIT 2;
  a |           b           
 ---+-----------------------
@@ -1036,6 +1128,7 @@ SELECT a::float, b::varchar FROM f_mongo_test ORDER BY a LIMIT 2;
  1 | One
 (2 rows)
 
+--Testcase 96:
 SELECT a::real, b::char(20) FROM f_mongo_test ORDER BY a LIMIT 2;
  a |          b           
 ---+----------------------
@@ -1043,6 +1136,7 @@ SELECT a::real, b::char(20) FROM f_mongo_test ORDER BY a LIMIT 2;
  1 | One                 
 (2 rows)
 
+--Testcase 97:
 SELECT c1, c2::text FROM f_test_tbl1 ORDER BY c1 LIMIT 2;
  c1  |  c2  
 -----+------
@@ -1050,6 +1144,7 @@ SELECT c1, c2::text FROM f_test_tbl1 ORDER BY c1 LIMIT 2;
  200 | EMP2
 (2 rows)
 
+--Testcase 98:
 SELECT a, LENGTH(b) FROM f_mongo_test ORDER BY 1 LIMIT 2;
  a | length 
 ---+--------
@@ -1057,6 +1152,7 @@ SELECT a, LENGTH(b) FROM f_mongo_test ORDER BY 1 LIMIT 2;
  1 |      3
 (2 rows)
 
+--Testcase 99:
 SELECT t1.c6::float, t1.c6::int, t1.c5::timestamptz, t1.c3::text, t2.c1::numeric, t2.c3
   FROM f_test_tbl1 t1, f_test_tbl2 t2 WHERE t1.c8 = t2.c1
   ORDER BY t2.c1, t1.c6 LIMIT 5;
@@ -1069,6 +1165,7 @@ SELECT t1.c6::float, t1.c6::int, t1.c5::timestamptz, t1.c3::text, t2.c1::numeric
     1100 | 1100 | 1987-05-23 00:00:00-07 | ADMIN   | 20 | BANGLORE
 (5 rows)
 
+--Testcase 100:
 SELECT SUM(a::float), SUM(a % 2), a % 2 AS "a % 2"FROM f_mongo_test
   GROUP BY a % 2 ORDER BY 2;
  sum | sum | a % 2 
@@ -1077,6 +1174,7 @@ SELECT SUM(a::float), SUM(a % 2), a % 2 AS "a % 2"FROM f_mongo_test
   25 |   5 |     1
 (2 rows)
 
+--Testcase 101:
 SELECT (c6::float + (c1 * length(c3::text))) AS "c1 + c6", c1, c6
   FROM f_test_tbl1 ORDER BY c1 LIMIT 5;
  c1 + c6 | c1  |   c6    
@@ -1089,11 +1187,12 @@ SELECT (c6::float + (c1 * length(c3::text))) AS "c1 + c6", c1, c6
 (5 rows)
 
 -- FDW-249; LEFT JOIN LATERAL should not crash
+--Testcase 102:
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT t1.a, t1.b, t3.a, t1_a FROM f_mongo_test t1 LEFT JOIN LATERAL (
   SELECT t2.a, t1.a AS t1_a FROM f_mongo_test t2) t3 ON t1.a = t3.a ORDER BY 1;
-                          QUERY PLAN                           
----------------------------------------------------------------
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: t1.a, t1.b, t2.a, (t1.a)
    Sort Key: t1.a
@@ -1102,12 +1201,15 @@ SELECT t1.a, t1.b, t3.a, t1_a FROM f_mongo_test t1 LEFT JOIN LATERAL (
          ->  Foreign Scan on public.f_mongo_test t1
                Output: t1._id, t1.a, t1.b
                Foreign Namespace: mongo_fdw_regress.mongo_test
+               Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
          ->  Foreign Scan on public.f_mongo_test t2
                Output: t2.a, t1.a
                Filter: (t1.a = t2.a)
                Foreign Namespace: mongo_fdw_regress.mongo_test
-(12 rows)
+               Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" } } } ] }
+(14 rows)
 
+--Testcase 103:
 SELECT t1.a, t1.b, t3.a, t1_a FROM f_mongo_test t1 LEFT JOIN LATERAL (
   SELECT t2.a, t1.a AS t1_a FROM f_mongo_test t2) t3 ON t1.a = t3.a ORDER BY 1;
  a  |           b           | a  | t1_a 
@@ -1125,6 +1227,7 @@ SELECT t1.a, t1.b, t3.a, t1_a FROM f_mongo_test t1 LEFT JOIN LATERAL (
  10 | Ten                   | 10 |   10
 (11 rows)
 
+--Testcase 104:
 SELECT t1.c1, t3.c1, t3.t1_c8 FROM f_test_tbl1 t1 INNER JOIN LATERAL (
   SELECT t2.c1, t1.c8 AS t1_c8 FROM f_test_tbl2 t2) t3 ON t3.c1 = t3.t1_c8
   ORDER BY 1, 2, 3;
@@ -1146,6 +1249,7 @@ SELECT t1.c1, t3.c1, t3.t1_c8 FROM f_test_tbl1 t1 INNER JOIN LATERAL (
  1400 | 10 |    10
 (14 rows)
 
+--Testcase 105:
 SELECT t1.c1, t3.c1, t3.t1_c8 FROM l_test_tbl1 t1 LEFT JOIN LATERAL (
   SELECT t2.c1, t1.c8 AS t1_c8 FROM f_test_tbl2 t2) t3 ON t3.c1 = t3.t1_c8
   ORDER BY 1, 2, 3;
@@ -1167,6 +1271,7 @@ SELECT t1.c1, t3.c1, t3.t1_c8 FROM l_test_tbl1 t1 LEFT JOIN LATERAL (
  1400 | 10 |    10
 (14 rows)
 
+--Testcase 106:
 SELECT c1, c2, (SELECT r FROM (SELECT c1 AS c1) x, LATERAL (SELECT c1 AS r) y)
   FROM f_test_tbl1 ORDER BY 1, 2, 3;
   c1  |  c2   |  r   
@@ -1188,6 +1293,7 @@ SELECT c1, c2, (SELECT r FROM (SELECT c1 AS c1) x, LATERAL (SELECT c1 AS r) y)
 (14 rows)
 
 -- LATERAL JOIN with RIGHT should throw error
+--Testcase 107:
 SELECT t1.c1, t3.c1, t3.t1_c8 FROM f_test_tbl1 t1 RIGHT JOIN LATERAL (
   SELECT t2.c1, t1.c8 AS t1_c8 FROM f_test_tbl2 t2) t3 ON t3.c1 = t3.t1_c8
   ORDER BY 1, 2, 3;
@@ -1196,33 +1302,40 @@ LINE 2:   SELECT t2.c1, t1.c8 AS t1_c8 FROM f_test_tbl2 t2) t3 ON t3...
                         ^
 DETAIL:  The combining JOIN type must be INNER or LEFT for a LATERAL reference.
 -- FDW-262: Should throw an error when we select system attribute.
+--Testcase 108:
 SELECT xmin FROM f_test_tbl1;
 ERROR:  system attribute "xmin" can't be fetched from remote relation
+--Testcase 109:
 SELECT ctid, xmax, tableoid FROM f_test_tbl1;
 ERROR:  system attribute "ctid" can't be fetched from remote relation
+--Testcase 110:
 SELECT xmax, c1 FROM f_test_tbl1;
 ERROR:  system attribute "xmax" can't be fetched from remote relation
+--Testcase 111:
 SELECT count(tableoid) FROM f_test_tbl1;
 ERROR:  system attribute "tableoid" can't be fetched from remote relation
 -- FDW-391: Support whole-row reference.
+--Testcase 112:
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT t1.c2, t1 FROM f_test_tbl1 t1
   WHERE c1 = 100 ORDER BY 1;
-                       QUERY PLAN                       
---------------------------------------------------------
+                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: c2, t1.*
    Sort Key: t1.c2
    ->  Foreign Scan on public.f_test_tbl1 t1
          Output: c2, t1.*
          Foreign Namespace: mongo_fdw_regress.test_tbl1
-(6 rows)
+         Query document: { "pipeline" : [ { "$match" : { "c1" : { "$eq" : { "$numberInt" : "100" } } } }, { "$project" : { "_id" : { "$numberInt" : "1" }, "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" }, "c3" : { "$numberInt" : "1" }, "c4" : { "$numberInt" : "1" }, "c5" : { "$numberInt" : "1" }, "c6" : { "$numberInt" : "1" }, "c7" : { "$numberInt" : "1" }, "c8" : { "$numberInt" : "1" } } } ] }
+(7 rows)
 
+--Testcase 113:
 EXPLAIN (VERBOSE, COSTS OFF)
 SELECT d, d.c2, e.c1, e
   FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
-                             QUERY PLAN                             
---------------------------------------------------------------------
+                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: d.*, d.c2, e.c1, e.*
    Sort Key: d.*, e.c1
@@ -1235,34 +1348,58 @@ SELECT d, d.c2, e.c1, e
                ->  Foreign Scan on public.f_test_tbl2 d
                      Output: d.*, d.c2, d.c1
                      Foreign Namespace: mongo_fdw_regress.test_tbl2
+                     Query document: { "pipeline" : [ { "$project" : { "_id" : { "$numberInt" : "1" }, "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" }, "c3" : { "$numberInt" : "1" } } } ] }
          ->  Sort
                Output: e.c1, e.*, e.c8
                Sort Key: e.c8
                ->  Foreign Scan on public.f_test_tbl1 e
                      Output: e.c1, e.*, e.c8
                      Foreign Namespace: mongo_fdw_regress.test_tbl1
-(18 rows)
+                     Query document: { "pipeline" : [ { "$project" : { "_id" : { "$numberInt" : "1" }, "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" }, "c3" : { "$numberInt" : "1" }, "c4" : { "$numberInt" : "1" }, "c5" : { "$numberInt" : "1" }, "c6" : { "$numberInt" : "1" }, "c7" : { "$numberInt" : "1" }, "c8" : { "$numberInt" : "1" } } } ] }
+(20 rows)
 
 -- Cleanup
+--Testcase 114:
 DELETE FROM f_mongo_test WHERE a != 0;
+--Testcase 115:
 DROP TABLE l_test_tbl1;
+--Testcase 116:
 DROP TABLE l_test_tbl2;
+--Testcase 117:
 DROP TABLE l_mongo_test;
+--Testcase 118:
 DROP VIEW smpl_vw;
+--Testcase 119:
 DROP VIEW comp_vw;
+--Testcase 120:
 DROP VIEW temp_vw;
+--Testcase 121:
 DROP VIEW mul_tbl_view;
+--Testcase 122:
 DROP FUNCTION test_param_where();
+--Testcase 123:
 DROP FOREIGN TABLE f_mongo_test;
+--Testcase 124:
 DROP FOREIGN TABLE f_test_tbl1;
+--Testcase 125:
 DROP FOREIGN TABLE f_test_tbl2;
+--Testcase 126:
 DROP FOREIGN TABLE countries;
+--Testcase 127:
 DROP FOREIGN TABLE country_elections;
+--Testcase 128:
 DROP FOREIGN TABLE main_exports;
+--Testcase 129:
 DROP FOREIGN TABLE test_json;
+--Testcase 130:
 DROP FOREIGN TABLE test_jsonb;
+--Testcase 131:
 DROP FOREIGN TABLE test_text;
+--Testcase 132:
 DROP FOREIGN TABLE test_varchar;
+--Testcase 133:
 DROP USER MAPPING FOR public SERVER mongo_server;
+--Testcase 134:
 DROP SERVER mongo_server;
+--Testcase 135:
 DROP EXTENSION mongo_fdw;
