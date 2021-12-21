@@ -98,15 +98,21 @@ SELECT bool_and(c5 != 0 OR c4-c5 > 1) , bool_and(c5 != 0) FROM tbl_pushdown WHER
 --Testcase 41:
 EXPLAIN VERBOSE SELECT c1, c2, c3, c4, c5, c10 FROM tbl_pushdown GROUP BY c1, c2, c3, c4, c5, c10;
 --Testcase 42:
-SELECT c1, c2, c3, c4, c5, c10 FROM tbl_pushdown GROUP BY c1, c2, c3, c4, c5, c10;
+SELECT * FROM (
+SELECT c1, c2, c3, c4, c5, c10 FROM tbl_pushdown GROUP BY c1, c2, c3, c4, c5, c10
+) t ORDER BY 1, 2, 3, 4, 5, 6;
 --Testcase 43:
 EXPLAIN VERBOSE SELECT c1, avg(c4), c2, sum(c6), c5 FROM tbl_pushdown GROUP BY c1, c2, c5;
 --Testcase 44:
-SELECT c1, avg(c4), c2, sum(c6), c5 FROM tbl_pushdown GROUP BY c1, c2, c5;
+SELECT * FROM (
+SELECT c1, avg(c4), c2, sum(c6), c5 FROM tbl_pushdown GROUP BY c1, c2, c5
+) t ORDER BY 1, 2, 3, 4, 5;
 --Testcase 45:
 EXPLAIN VERBOSE SELECT avg(c4), stddev(c4), stddev_pop(c5), stddev_samp(c6) FROM tbl_pushdown GROUP BY c1;
 --Testcase 46:
-SELECT avg(c4), stddev(c4), stddev_pop(c5), stddev_samp(c6) FROM tbl_pushdown GROUP BY c1;
+SELECT * FROM (
+SELECT avg(c4), stddev(c4), stddev_pop(c5), stddev_samp(c6) FROM tbl_pushdown GROUP BY c1
+) t ORDER BY 1, 2, 3, 4;
 --Testcase 47:
 EXPLAIN VERBOSE SELECT array_agg(c1 || ':' || c2) FROM tbl_pushdown GROUP BY c1, c2;
 --Testcase 48:
@@ -144,7 +150,9 @@ SELECT c8->'teams'->'parent'->'name', c8->'teams'->'parent'->>'id' FROM tbl_push
 --Testcase 63:
 EXPLAIN VERBOSE SELECT c9, c4, c5, c6 FROM tbl_pushdown GROUP BY 1, 2, 3, 4 HAVING c4 <> 0;
 --Testcase 64:
-SELECT c9, c4, c5, c6 FROM tbl_pushdown GROUP BY 1, 2, 3, 4 HAVING c4 <> 0;
+SELECT * FROM (
+SELECT c9, c4, c5, c6 FROM tbl_pushdown GROUP BY 1, 2, 3, 4 HAVING c4 <> 0
+) t ORDER BY 1, 2, 3, 4;
 --Testcase 65:
 EXPLAIN VERBOSE SELECT stddev(c4), stddev_pop(c5), stddev_samp(c6) FROM tbl_pushdown GROUP BY c6 HAVING avg(c6) > 0;
 --Testcase 66:
@@ -169,7 +177,9 @@ SELECT string_agg(c2, ' '), string_agg(c1, ' ') FROM tbl_pushdown WHERE c1 != c2
 --Testcase 75:
 EXPLAIN VERBOSE SELECT c9, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY c1, c2, c3, c9 HAVING c2 <> '#@O!';
 --Testcase 76:
-SELECT c9, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY c1, c2, c3, c9 HAVING c2 <> '#@O!';
+SELECT * FROM (
+SELECT c9, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY c1, c2, c3, c9 HAVING c2 <> '#@O!'
+) t ORDER BY 1, 2, 3, 4;
 --Testcase 77:
 EXPLAIN VERBOSE SELECT c4 <> 0, c5 < 0, stddev(c5) FROM tbl_pushdown WHERE c4 != 0 GROUP BY c4, c5 HAVING c5 <= c4; 
 --Testcase 78:
@@ -295,7 +305,9 @@ SELECT c9 || '@#', c4 + c5/c6, c6, c10 FROM tbl_pushdown WHERE c2 IN ('012803192
 --Testcase 135:
 EXPLAIN VERBOSE SELECT _id, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY _id, c1, c2, c3, c9 HAVING c2 <> '#@O!' OFFSET 1;
 --Testcase 136:
-SELECT _id, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY _id, c1, c2, c3, c9 HAVING c2 <> '#@O!' OFFSET 1;
+SELECT * FROM (
+SELECT _id, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY _id, c1, c2, c3, c9 HAVING c2 <> '#@O!' OFFSET 1
+) t ORDER BY 1, 2, 3, 4;
 --both limit, offset
 --Testcase 137:
 EXPLAIN VERBOSE SELECT c7->>'key', c7->>'values', c7->>'events' FROM tbl_pushdown LIMIT 10 OFFSET NULL;
@@ -333,7 +345,9 @@ SELECT count(c1 || c3), c4, c6 FROM tbl_pushdown WHERE c4-c5 <> 0 GROUP BY c4, c
 --Testcase 153:
 EXPLAIN VERBOSE SELECT c3 || c1, abs(c4/(c6-c5)), c9, c10 FROM tbl_pushdown WHERE c3 NOT IN ('/eew', '/3434', '/svr') GROUP BY c1, c3, c4, c9, c10, c6, c5 HAVING c4 != 0 LIMIT ALL OFFSET NULL;
 --Testcase 154:
-SELECT c3 || c1, abs(c4/(c6-c5)), c9, c10 FROM tbl_pushdown WHERE c3 NOT IN ('/eew', '/3434', '/svr') GROUP BY c1, c3, c4, c9, c10, c6, c5 HAVING c4 != 0 LIMIT ALL OFFSET NULL;
+SELECT * FROM (
+SELECT c3 || c1, abs(c4/(c6-c5)), c9, c10 FROM tbl_pushdown WHERE c3 NOT IN ('/eew', '/3434', '/svr') GROUP BY c1, c3, c4, c9, c10, c6, c5 HAVING c4 != 0 LIMIT ALL OFFSET NULL
+) t ORDER BY 1, 2, 3, 4;
 --Testcase 155:
 EXPLAIN VERBOSE SELECT count(*), count(c1), avg(c6)+stddev(c5), sum(c4/12) FROM tbl_pushdown WHERE c4 <> 0 HAVING count(*) >= 0 LIMIT 1 OFFSET 0;
 --Testcase 156:
@@ -438,7 +452,9 @@ SELECT c1, avg(c4), c2, sum(c6), c5 FROM tbl_pushdown WHERE c4-c6 > c4 -c5 GROUP
 --Testcase 203:
 EXPLAIN VERBOSE SELECT stddev((c7->'values'->>1)::float8), avg((c7->'values'->>2)::float8), avg((c7->'values'->>1)::float8), stddev_samp((c7->'values'->>2)::float8) FROM tbl_pushdown WHERE c4-c6 > c4-c5 GROUP BY c6 HAVING c6 >= 0 LIMIT 5;
 --Testcase 204:
-SELECT stddev((c7->'values'->>1)::float8), avg((c7->'values'->>2)::float8), avg((c7->'values'->>1)::float8), stddev_samp((c7->'values'->>2)::float8) FROM tbl_pushdown WHERE c4-c6 > c4-c5 GROUP BY c6 HAVING c6 >= 0 LIMIT 5;
+SELECT * FROM (
+SELECT stddev((c7->'values'->>1)::float8), avg((c7->'values'->>2)::float8), avg((c7->'values'->>1)::float8), stddev_samp((c7->'values'->>2)::float8) FROM tbl_pushdown WHERE c4-c6 > c4-c5 GROUP BY c6 HAVING c6 >= 0 LIMIT 5
+) t ORDER BY 1, 2, 3, 4;
 --Testcase 205:
 EXPLAIN VERBOSE SELECT '!@_!+', 23, c5+c6/c4, c5+12, abs(c4/(c6-c5)) FROM tbl_pushdown WHERE c4/c6 >= 0 OR c5*c6/c4 < 1000 GROUP BY c5, c4, c6, c1 HAVING c5 <> 0 AND c1 NOT IN ('a3awer', '2323ASE') LIMIT 5 OFFSET 1;
 --Testcase 206:

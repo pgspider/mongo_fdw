@@ -14,6 +14,33 @@ CREATE SERVER mongo_server FOREIGN DATA WRAPPER mongo_fdw
 --Testcase 3:
 CREATE USER MAPPING FOR public SERVER mongo_server;
 
+-- Multi-line JSON input to check ERROR reporting
+CREATE FOREIGN TABLE jsonb_tbl (_id name, x text)
+ SERVER mongo_server OPTIONS (database 'json_regress', collection 'jsonb_tbl');
+INSERT INTO jsonb_tbl(x) VALUES ('{
+		"one": 1,
+		"two":"two",
+		"three":
+		true}');
+SELECT x::jsonb FROM jsonb_tbl; -- OK
+DELETE FROM jsonb_tbl;
+
+INSERT INTO jsonb_tbl(x) VALUES ('{
+		"one": 1,
+		"two":,"two",  -- ERROR extraneous comma before field "two"
+		"three":
+		true}');
+SELECT x::jsonb FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+
+
+INSERT INTO jsonb_tbl(x) VALUES ('{
+		"one": 1,
+		"two":"two",
+		"averyveryveryveryveryveryveryveryveryverylongfieldname":}');
+SELECT x::jsonb FROM jsonb_tbl;
+-- ERROR missing value for last field
+DELETE FROM jsonb_tbl;
 
 --constructors
 -- row_to_json
@@ -39,13 +66,8 @@ SELECT jsonb_agg(q ORDER BY x NULLS FIRST, y)
   FROM rows q;
 
 -- jsonb extraction functions
---Testcase 10:
-CREATE TEMP TABLE test_jsonb (
-       json_type text,
-       test_json jsonb
-);
 --Testcase 11:
-CREATE FOREIGN TABLE test_jsonb (_id name, json_type text, test_json jsonb)
+CREATE FOREIGN TABLE test_jsonb (json_type text, test_json jsonb)
  SERVER mongo_server OPTIONS (database 'jsonb_regress', collection 'test_jsonb');
 
 --Testcase 12:
@@ -677,7 +699,6 @@ RESET enable_seqscan;
 --Testcase 303:
 DROP INDEX jidx;
 
-
 --Testcase 304:
 CREATE FOREIGN TABLE foo (_id name, serial_num int, name text, type text)
  SERVER mongo_server OPTIONS (database 'jsonb_regress', collection 'foo');
@@ -783,6 +804,214 @@ reset enable_seqscan;
 reset enable_bitmapscan;
 
 
+-- jsonb subscript
+
+INSERT INTO jsonb_tbl(x) VALUES ('123');
+SELECT (x::jsonb)['a'] FROM jsonb_tbl;
+SELECT (x::jsonb)[0] FROM jsonb_tbl;
+SELECT (x::jsonb)[NULL] FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+
+INSERT INTO jsonb_tbl(x) VALUES ('{"a": 1}');
+SELECT (x::jsonb)['a'] FROM jsonb_tbl;
+SELECT (x::jsonb)[0] FROM jsonb_tbl;
+SELECT (x::jsonb)['not_exist'] FROM jsonb_tbl;
+SELECT (x::jsonb)[NULL] FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+
+INSERT INTO jsonb_tbl(x) VALUES ('[1, "2", null]');
+SELECT (x::jsonb)['a'] FROM jsonb_tbl;
+SELECT (x::jsonb)[0] FROM jsonb_tbl;
+SELECT (x::jsonb)['1'] FROM jsonb_tbl;
+SELECT (x::jsonb)[1.0] FROM jsonb_tbl;
+SELECT (x::jsonb)[2] FROM jsonb_tbl;
+SELECT (x::jsonb)[3] FROM jsonb_tbl;
+SELECT (x::jsonb)[-2] FROM jsonb_tbl;
+SELECT (x::jsonb)[1]['a'] FROM jsonb_tbl;
+SELECT (x::jsonb)[1][0] FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+
+
+INSERT INTO jsonb_tbl(x) VALUES ('{"a": 1, "b": "c", "d": [1, 2, 3]}');
+SELECT (x::jsonb)['b'] FROM jsonb_tbl;
+SELECT (x::jsonb)['d'] FROM jsonb_tbl;
+SELECT (x::jsonb)['d'][1] FROM jsonb_tbl;
+SELECT (x::jsonb)['d']['a'] FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+
+INSERT INTO jsonb_tbl(x) VALUES ('{"a": {"a1": {"a2": "aaa"}}, "b": "bbb", "c": "ccc"}');
+SELECT (x::jsonb)['a']['a1'] FROM jsonb_tbl;
+SELECT (x::jsonb)['a']['a1']['a2'] FROM jsonb_tbl;
+SELECT (x::jsonb)['a']['a1']['a2']['a3'] FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+
+INSERT INTO jsonb_tbl(x) VALUES ('{"a": ["a1", {"b1": ["aaa", "bbb", "ccc"]}], "b": "bb"}');
+SELECT (x::jsonb)['a'][1]['b1'] FROM jsonb_tbl;
+SELECT (x::jsonb)['a'][1]['b1'][2] FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+
+-- slices are not supported
+INSERT INTO jsonb_tbl(x) VALUES ('{"a": 1}');
+SELECT (x::jsonb)['a':'b'] FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+
+INSERT INTO jsonb_tbl(x) VALUES ('[1, "2", null]');
+SELECT (x::jsonb)[1:2] FROM jsonb_tbl;
+SELECT (x::jsonb)[:2] FROM jsonb_tbl;
+SELECT (x::jsonb)[1:] FROM jsonb_tbl;
+SELECT (x::jsonb)[:] FROM jsonb_tbl;
+DELETE FROM jsonb_tbl;
+DROP FOREIGN TABLE jsonb_tbl;
+
+CREATE FOREIGN TABLE test_jsonb_subscript (
+		_id name,
+		id int,
+		test_json jsonb
+) SERVER mongo_server OPTIONS (database 'jsonb_regress', collection 'test_jsonb_subscript');
+
+insert into test_jsonb_subscript(id, test_json) values
+(1, '{}'), -- empty jsonb
+(2, '{"key": "value"}'); -- jsonb with data
+
+-- update empty jsonb
+update test_jsonb_subscript set test_json['a'] = '1' where id = 1;
+select id, test_json from test_jsonb_subscript;
+
+-- update jsonb with some data
+update test_jsonb_subscript set test_json['a'] = '1' where id = 2;
+select id, test_json from test_jsonb_subscript;
+
+-- replace jsonb
+update test_jsonb_subscript set test_json['a'] = '"test"';
+select id, test_json from test_jsonb_subscript;
+
+-- replace by object
+update test_jsonb_subscript set test_json['a'] = '{"b": 1}'::jsonb;
+select id, test_json from test_jsonb_subscript;
+
+-- replace by array
+update test_jsonb_subscript set test_json['a'] = '[1, 2, 3]'::jsonb;
+select id, test_json from test_jsonb_subscript;
+
+-- use jsonb subscription in where clause
+select id, test_json from test_jsonb_subscript where test_json['key'] = '"value"';
+select id, test_json from test_jsonb_subscript where test_json['key_doesnt_exists'] = '"value"';
+select id, test_json from test_jsonb_subscript where test_json['key'] = '"wrong_value"';
+
+-- NULL
+update test_jsonb_subscript set test_json[NULL] = '1';
+update test_jsonb_subscript set test_json['another_key'] = NULL;
+select id, test_json from test_jsonb_subscript;
+
+-- NULL as jsonb source
+insert into test_jsonb_subscript(id, test_json) values (3, NULL);
+update test_jsonb_subscript set test_json['a'] = '1' where id = 3;
+select id, test_json from test_jsonb_subscript;
+
+update test_jsonb_subscript set test_json = NULL where id = 3;
+update test_jsonb_subscript set test_json[0] = '1';
+select id, test_json from test_jsonb_subscript;
+
+-- Fill the gaps logic
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '[0]');
+
+update test_jsonb_subscript set test_json[5] = '1';
+select id, test_json from test_jsonb_subscript;
+
+update test_jsonb_subscript set test_json[-4] = '1';
+select id, test_json from test_jsonb_subscript;
+
+update test_jsonb_subscript set test_json[-8] = '1';
+select id, test_json from test_jsonb_subscript;
+
+-- keep consistent values position
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '[]');
+
+update test_jsonb_subscript set test_json[5] = '1';
+select id, test_json from test_jsonb_subscript;
+
+-- create the whole path
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{}');
+update test_jsonb_subscript set test_json['a'][0]['b'][0]['c'] = '1';
+select id, test_json from test_jsonb_subscript;
+
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{}');
+update test_jsonb_subscript set test_json['a'][2]['b'][2]['c'][2] = '1';
+select id, test_json from test_jsonb_subscript;
+
+-- create the whole path with already existing keys
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{"b": 1}');
+update test_jsonb_subscript set test_json['a'][0] = '2';
+select id, test_json from test_jsonb_subscript;
+
+-- the start jsonb is an object, first subscript is treated as a key
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{}');
+update test_jsonb_subscript set test_json[0]['a'] = '1';
+select id, test_json from test_jsonb_subscript;
+
+-- the start jsonb is an array
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '[]');
+update test_jsonb_subscript set test_json[0]['a'] = '1';
+update test_jsonb_subscript set test_json[2]['b'] = '2';
+select id, test_json from test_jsonb_subscript;
+
+-- overwriting an existing path
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{}');
+update test_jsonb_subscript set test_json['a']['b'][1] = '1';
+update test_jsonb_subscript set test_json['a']['b'][10] = '1';
+select id, test_json from test_jsonb_subscript;
+
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '[]');
+update test_jsonb_subscript set test_json[0][0][0] = '1';
+update test_jsonb_subscript set test_json[0][0][1] = '1';
+select id, test_json from test_jsonb_subscript;
+
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{}');
+update test_jsonb_subscript set test_json['a']['b'][10] = '1';
+update test_jsonb_subscript set test_json['a'][10][10] = '1';
+select id, test_json from test_jsonb_subscript;
+
+-- an empty sub element
+
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{"a": {}}');
+update test_jsonb_subscript set test_json['a']['b']['c'][2] = '1';
+select id, test_json from test_jsonb_subscript;
+
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{"a": []}');
+update test_jsonb_subscript set test_json['a'][1]['c'][2] = '1';
+select id, test_json from test_jsonb_subscript;
+
+-- trying replace assuming a composite object, but it's an element or a value
+
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, '{"a": 1}');
+update test_jsonb_subscript set test_json['a']['b'] = '1';
+update test_jsonb_subscript set test_json['a']['b']['c'] = '1';
+update test_jsonb_subscript set test_json['a'][0] = '1';
+update test_jsonb_subscript set test_json['a'][0]['c'] = '1';
+update test_jsonb_subscript set test_json['a'][0][0] = '1';
+
+-- trying replace assuming a composite object, but it's a raw scalar
+
+delete from test_jsonb_subscript;
+insert into test_jsonb_subscript(id, test_json) values (1, 'null');
+update test_jsonb_subscript set test_json[0] = '1';
+update test_jsonb_subscript set test_json[0][0] = '1';
+
+delete from test_jsonb_subscript;
+DROP FOREIGN TABLE test_jsonb_subscript;
 --Testcase 337:
 DROP USER MAPPING FOR public SERVER mongo_server;
 --Testcase 338:

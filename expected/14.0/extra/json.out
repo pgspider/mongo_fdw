@@ -11,6 +11,46 @@ CREATE SERVER mongo_server FOREIGN DATA WRAPPER mongo_fdw
   OPTIONS (address :MONGO_HOST, port :MONGO_PORT);
 --Testcase 3:
 CREATE USER MAPPING FOR public SERVER mongo_server;
+-- Multi-line JSON input to check ERROR reporting
+CREATE FOREIGN TABLE json_tbl (_id name, x text)
+ SERVER mongo_server OPTIONS (database 'json_regress', collection 'json_tbl');
+INSERT INTO json_tbl(x) VALUES ('{
+		"one": 1,
+		"two":"two",
+		"three":
+		true}');
+SELECT x::json FROM json_tbl; -- OK
+              x               
+------------------------------
+ {                           +
+                 "one": 1,   +
+                 "two":"two",+
+                 "three":    +
+                 true}
+(1 row)
+
+DELETE FROM json_tbl;
+INSERT INTO json_tbl(x) VALUES ('{
+		"one": 1,
+		"two":,"two",  -- ERROR extraneous comma before field "two"
+		"three":
+		true}');
+SELECT x::json FROM json_tbl;
+ERROR:  invalid input syntax for type json
+DETAIL:  Expected JSON value, but found ",".
+CONTEXT:  JSON data, line 3: 		"two":,...
+DELETE FROM json_tbl;
+INSERT INTO json_tbl(x) VALUES ('{
+		"one": 1,
+		"two":"two",
+		"averyveryveryveryveryveryveryveryveryverylongfieldname":}');
+SELECT x::json FROM json_tbl;
+ERROR:  invalid input syntax for type json
+DETAIL:  Expected JSON value, but found "}".
+CONTEXT:  JSON data, line 4: ...yveryveryveryveryveryveryveryverylongfieldname":}
+-- ERROR missing value for last field
+DELETE FROM json_tbl;
+DROP FOREIGN TABLE json_tbl;
 --constructors
 -- row_to_json
 --Testcase 4:
@@ -158,7 +198,7 @@ FROM test_json
 WHERE json_type = 'array';
  ?column? 
 ----------
- 
+ [ ]
 (1 row)
 
 --Testcase 19:
@@ -686,4 +726,3 @@ drop cascades to foreign table rows
 drop cascades to foreign table test_json
 drop cascades to foreign table jspoptest
 drop cascades to foreign table foo
- 
