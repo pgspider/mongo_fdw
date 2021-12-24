@@ -7,6 +7,7 @@ db.rows.drop();
 db.test_json.drop();
 db.foo.drop();
 db.jspoptest.drop();
+db.json_tbl.drop();
 
 // Below queries will create and insert values in collections
 db.rows.insertMany([

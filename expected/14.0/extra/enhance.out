@@ -437,19 +437,21 @@ EXPLAIN VERBOSE SELECT c1, c2, c3, c4, c5, c10 FROM tbl_pushdown GROUP BY c1, c2
 (4 rows)
 
 --Testcase 42:
-SELECT c1, c2, c3, c4, c5, c10 FROM tbl_pushdown GROUP BY c1, c2, c3, c4, c5, c10;
+SELECT * FROM (
+SELECT c1, c2, c3, c4, c5, c10 FROM tbl_pushdown GROUP BY c1, c2, c3, c4, c5, c10
+) t ORDER BY 1, 2, 3, 4, 5, 6;
           c1          |      c2       |                                                                                                                                       c3                                                                                                                                        |   c4    |      c5      | c10 
 ----------------------+---------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+--------------+-----
  030-1923=0           | ~!@#$%^&*()_+ | que tenga un lindo día                                                                                                                                                                                                                                                          | 9182318 |   9839712.12 | f
+ anything possible    | JFQO#@(JWAE)@ | システム設計検討資料チャート作成                                                                                                                                                                                                                                                |   23413 |     232.7634 | t
  J%-2i30              | akejf923!O@   | <>?}|!@#$%^&*()_+                                                                                                                                                                                                                                                               |  -23123 | 123123.91231 | f
- Sort                 | J#PR          | Tjos os tres difficile                                                                                                                                                                                                                                                          |    1232 |       839.12 | f
+ MOẰNAJFK             | fat20 & ()\\  | interval                                                                                                                                                                                                                                                                        |   23123 |      -0.1212 | f
+ naming it á ú í à    | ごきげんよう  | \\1132165131651316153                                                                                                                                                                                                                                                           |     212 |       11.212 | f
+ paintings            | 012803192     | มีวันที่ดี                                                                                                                                                                                                                                                                           |    4312 |    -1928.121 | t
  quantiry             | ハンサム      | ()ƯEFJAF                                                                                                                                                                                                                                                                        |     212 |      -212.12 | t
+ Sort                 | J#PR          | Tjos os tres difficile                                                                                                                                                                                                                                                          |    1232 |       839.12 | f
  txid txid            | сковорода     | <town>Toronto</town>                                                                                                                                                                                                                                                            |     115 |        -53.2 | t
  格納用のドキュメント | Đẹp trai      | ~!@#$!@#!@#@#                                                                                                                                                                                                                                                                   |    -923 |    231.98394 | t
- anything possible    | JFQO#@(JWAE)@ | システム設計検討資料チャート作成                                                                                                                                                                                                                                                |   23413 |     232.7634 | t
- paintings            | 012803192     | มีวันที่ดี                                                                                                                                                                                                                                                                           |    4312 |    -1928.121 | t
- naming it á ú í à    | ごきげんよう  | \\1132165131651316153                                                                                                                                                                                                                                                           |     212 |       11.212 | f
- MOẰNAJFK             | fat20 & ()\\  | interval                                                                                                                                                                                                                                                                        |   23123 |      -0.1212 | f
 (10 rows)
 
 --Testcase 43:
@@ -463,19 +465,21 @@ EXPLAIN VERBOSE SELECT c1, avg(c4), c2, sum(c6), c5 FROM tbl_pushdown GROUP BY c
 (4 rows)
 
 --Testcase 44:
-SELECT c1, avg(c4), c2, sum(c6), c5 FROM tbl_pushdown GROUP BY c1, c2, c5;
+SELECT * FROM (
+SELECT c1, avg(c4), c2, sum(c6), c5 FROM tbl_pushdown GROUP BY c1, c2, c5
+) t ORDER BY 1, 2, 3, 4, 5;
           c1          |   avg   |      c2       | sum |      c5      
 ----------------------+---------+---------------+-----+--------------
- quantiry             |     212 | ハンサム      |   2 |      -212.12
- J%-2i30              |  -23123 | akejf923!O@   |  12 | 123123.91231
- naming it á ú í à    |     212 | ごきげんよう  | 123 |       11.212
- MOẰNAJFK             |   23123 | fat20 & ()\\  | -12 |      -0.1212
- anything possible    |   23413 | JFQO#@(JWAE)@ | 323 |     232.7634
- 格納用のドキュメント |    -923 | Đẹp trai      |  23 |    231.98394
- txid txid            |     115 | сковорода     |  10 |        -53.2
  030-1923=0           | 9182318 | ~!@#$%^&*()_+ | 162 |   9839712.12
- Sort                 |    1232 | J#PR          | 535 |       839.12
+ anything possible    |   23413 | JFQO#@(JWAE)@ | 323 |     232.7634
+ J%-2i30              |  -23123 | akejf923!O@   |  12 | 123123.91231
+ MOẰNAJFK             |   23123 | fat20 & ()\\  | -12 |      -0.1212
+ naming it á ú í à    |     212 | ごきげんよう  | 123 |       11.212
  paintings            |    4312 | 012803192     |  51 |    -1928.121
+ quantiry             |     212 | ハンサム      |   2 |      -212.12
+ Sort                 |    1232 | J#PR          | 535 |       839.12
+ txid txid            |     115 | сковорода     |  10 |        -53.2
+ 格納用のドキュメント |    -923 | Đẹp trai      |  23 |    231.98394
 (10 rows)
 
 --Testcase 45:
@@ -489,19 +493,21 @@ EXPLAIN VERBOSE SELECT avg(c4), stddev(c4), stddev_pop(c5), stddev_samp(c6) FROM
 (4 rows)
 
 --Testcase 46:
-SELECT avg(c4), stddev(c4), stddev_pop(c5), stddev_samp(c6) FROM tbl_pushdown GROUP BY c1;
+SELECT * FROM (
+SELECT avg(c4), stddev(c4), stddev_pop(c5), stddev_samp(c6) FROM tbl_pushdown GROUP BY c1
+) t ORDER BY 1, 2, 3, 4;
    avg   | stddev | stddev_pop | stddev_samp 
 ---------+--------+------------+-------------
-     115 |        |          0 |            
-   23123 |        |          0 |            
+  -23123 |        |          0 |            
     -923 |        |          0 |            
+     115 |        |          0 |            
+     212 |        |          0 |            
+     212 |        |          0 |            
     1232 |        |          0 |            
     4312 |        |          0 |            
- 9182318 |        |          0 |            
-     212 |        |          0 |            
-     212 |        |          0 |            
-  -23123 |        |          0 |            
+   23123 |        |          0 |            
    23413 |        |          0 |            
+ 9182318 |        |          0 |            
 (10 rows)
 
 --Testcase 47:
@@ -726,19 +732,21 @@ EXPLAIN VERBOSE SELECT c9, c4, c5, c6 FROM tbl_pushdown GROUP BY 1, 2, 3, 4 HAVI
 (4 rows)
 
 --Testcase 64:
-SELECT c9, c4, c5, c6 FROM tbl_pushdown GROUP BY 1, 2, 3, 4 HAVING c4 <> 0;
+SELECT * FROM (
+SELECT c9, c4, c5, c6 FROM tbl_pushdown GROUP BY 1, 2, 3, 4 HAVING c4 <> 0
+) t ORDER BY 1, 2, 3, 4;
          c9          |   c4    |      c5      | c6  
 ---------------------+---------+--------------+-----
+ 0001-01-01 00:00:00 |  -23123 | 123123.91231 |  12
+ 2000-01-01 00:00:00 |     115 |        -53.2 |  10
  2000-01-01 00:00:00 |    4312 |    -1928.121 |  51
  2004-10-19 10:23:54 |     212 |       11.212 | 123
- 2000-01-01 00:00:00 |     115 |        -53.2 |  10
  2004-10-19 10:23:54 |   23123 |      -0.1212 | -12
- 2019-10-19 10:23:54 |    1232 |       839.12 | 535
- 0001-01-01 00:00:00 |  -23123 | 123123.91231 |  12
  2008-10-19 10:23:54 |    -923 |    231.98394 |  23
- 3999-12-31 23:59:58 |     212 |      -212.12 |   2
  2008-10-19 10:23:54 | 9182318 |   9839712.12 | 162
+ 2019-10-19 10:23:54 |    1232 |       839.12 | 535
  2019-10-19 10:23:54 |   23413 |     232.7634 | 323
+ 3999-12-31 23:59:58 |     212 |      -212.12 |   2
 (10 rows)
 
 --Testcase 65:
@@ -770,7 +778,7 @@ SELECT stddev(c4), stddev_pop(c5), stddev_samp(c6) FROM tbl_pushdown GROUP BY c6
 EXPLAIN VERBOSE SELECT count(*), count(c1)-1, avg(c6)+3, sum(c4/12) FROM tbl_pushdown GROUP BY c1 HAVING count(c1) > 0;
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate  (cost=17.50..21.34 rows=67 width=112)
+ HashAggregate  (cost=15.00..18.84 rows=67 width=112)
    Output: count(*), (count(c1) - 1), (avg(c6) + '3'::numeric), sum((c4 / 12)), c1
    Group Key: tbl_pushdown.c1
    Filter: (count(tbl_pushdown.c1) > 0)
@@ -885,19 +893,21 @@ EXPLAIN VERBOSE SELECT c9, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 
 (4 rows)
 
 --Testcase 76:
-SELECT c9, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY c1, c2, c3, c9 HAVING c2 <> '#@O!';
+SELECT * FROM (
+SELECT c9, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY c1, c2, c3, c9 HAVING c2 <> '#@O!'
+) t ORDER BY 1, 2, 3, 4;
          c9          |          c1          |                                                                                                                                       c3                                                                                                                                        |        ?column?         
 ---------------------+----------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------
- 2004-10-19 10:23:54 | naming it á ú í à    | \\1132165131651316153                                                                                                                                                                                                                                                           |    229.0000000000000000
- 2019-10-19 10:23:54 | Sort                 | Tjos os tres difficile                                                                                                                                                                                                                                                          |   1151.0000000000000000
- 2004-10-19 10:23:54 | MOẰNAJFK             | interval                                                                                                                                                                                                                                                                        |  11549.5000000000000000
- 2000-01-01 00:00:00 | txid txid            | <town>Toronto</town>                                                                                                                                                                                                                                                            |     67.5000000000000000
  0001-01-01 00:00:00 | J%-2i30              | <>?}|!@#$%^&*()_+                                                                                                                                                                                                                                                               | -11549.5000000000000000
- 3999-12-31 23:59:58 | quantiry             | ()ƯEFJAF                                                                                                                                                                                                                                                                        |    108.0000000000000000
- 2008-10-19 10:23:54 | 格納用のドキュメント | ~!@#$!@#!@#@#                                                                                                                                                                                                                                                                   |   -438.5000000000000000
- 2008-10-19 10:23:54 | 030-1923=0           | que tenga un lindo día                                                                                                                                                                                                                                                          |    4591321.000000000000
  2000-01-01 00:00:00 | paintings            | มีวันที่ดี                                                                                                                                                                                                                                                                           |   2207.0000000000000000
+ 2000-01-01 00:00:00 | txid txid            | <town>Toronto</town>                                                                                                                                                                                                                                                            |     67.5000000000000000
+ 2004-10-19 10:23:54 | MOẰNAJFK             | interval                                                                                                                                                                                                                                                                        |  11549.5000000000000000
+ 2004-10-19 10:23:54 | naming it á ú í à    | \\1132165131651316153                                                                                                                                                                                                                                                           |    229.0000000000000000
+ 2008-10-19 10:23:54 | 030-1923=0           | que tenga un lindo día                                                                                                                                                                                                                                                          |    4591321.000000000000
+ 2008-10-19 10:23:54 | 格納用のドキュメント | ~!@#$!@#!@#@#                                                                                                                                                                                                                                                                   |   -438.5000000000000000
  2019-10-19 10:23:54 | anything possible    | システム設計検討資料チャート作成                                                                                                                                                                                                                                                |  12029.5000000000000000
+ 2019-10-19 10:23:54 | Sort                 | Tjos os tres difficile                                                                                                                                                                                                                                                          |   1151.0000000000000000
+ 3999-12-31 23:59:58 | quantiry             | ()ƯEFJAF                                                                                                                                                                                                                                                                        |    108.0000000000000000
 (10 rows)
 
 --Testcase 77:
@@ -1586,18 +1596,20 @@ EXPLAIN VERBOSE SELECT _id, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1
 (4 rows)
 
 --Testcase 136:
-SELECT _id, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY _id, c1, c2, c3, c9 HAVING c2 <> '#@O!' OFFSET 1;
- _id |          c1          |                                                                                                                               c3                                                                                                                                |        ?column?         
------+----------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------
-   4 | naming it á ú í à    | \\1132165131651316153                                                                                                                                                                                                                                           |    229.0000000000000000
-   2 | txid txid            | <town>Toronto</town>                                                                                                                                                                                                                                            |     67.5000000000000000
-   6 | J%-2i30              | <>?}|!@#$%^&*()_+                                                                                                                                                                                                                                               | -11549.5000000000000000
-  10 | Sort                 | Tjos os tres difficile                                                                                                                                                                                                                                          |   1151.0000000000000000
-   5 | MOẰNAJFK             | interval                                                                                                                                                                                                                                                        |  11549.5000000000000000
-   7 | 格納用のドキュメント | ~!@#$!@#!@#@#                                                                                                                                                                                                                                                   |   -438.5000000000000000
-   1 | paintings            | มีวันที่ดี                                                                                                                                                                                                                                                           |   2207.0000000000000000
-   8 | 030-1923=0           | que tenga un lindo día                                                                                                                                                                                                                                          |    4591321.000000000000
-   3 | quantiry             | ()ƯEFJAF                                                                                                                                                                                                                                                        |    108.0000000000000000
+SELECT * FROM (
+SELECT _id, c1, c3, sum(c6)+avg(c4)/2 FROM tbl_pushdown WHERE c1 IS NOT NULL GROUP BY _id, c1, c2, c3, c9 HAVING c2 <> '#@O!' OFFSET 1
+) t ORDER BY 1, 2, 3, 4;
+ _id |          c1          |                                                                                                                                       c3                                                                                                                                        |        ?column?         
+-----+----------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------
+   1 | paintings            | มีวันที่ดี                                                                                                                                                                                                                                                                           |   2207.0000000000000000
+   2 | txid txid            | <town>Toronto</town>                                                                                                                                                                                                                                                            |     67.5000000000000000
+   4 | naming it á ú í à    | \\1132165131651316153                                                                                                                                                                                                                                                           |    229.0000000000000000
+   5 | MOẰNAJFK             | interval                                                                                                                                                                                                                                                                        |  11549.5000000000000000
+   6 | J%-2i30              | <>?}|!@#$%^&*()_+                                                                                                                                                                                                                                                               | -11549.5000000000000000
+   7 | 格納用のドキュメント | ~!@#$!@#!@#@#                                                                                                                                                                                                                                                                   |   -438.5000000000000000
+   8 | 030-1923=0           | que tenga un lindo día                                                                                                                                                                                                                                                          |    4591321.000000000000
+   9 | anything possible    | システム設計検討資料チャート作成                                                                                                                                                                                                                                                |  12029.5000000000000000
+  10 | Sort                 | Tjos os tres difficile                                                                                                                                                                                                                                                          |   1151.0000000000000000
 (9 rows)
 
 --both limit, offset
@@ -1794,28 +1806,30 @@ EXPLAIN VERBOSE SELECT c3 || c1, abs(c4/(c6-c5)), c9, c10 FROM tbl_pushdown WHER
 (4 rows)
 
 --Testcase 154:
-SELECT c3 || c1, abs(c4/(c6-c5)), c9, c10 FROM tbl_pushdown WHERE c3 NOT IN ('/eew', '/3434', '/svr') GROUP BY c1, c3, c4, c9, c10, c6, c5 HAVING c4 != 0 LIMIT ALL OFFSET NULL;
+SELECT * FROM (
+SELECT c3 || c1, abs(c4/(c6-c5)), c9, c10 FROM tbl_pushdown WHERE c3 NOT IN ('/eew', '/3434', '/svr') GROUP BY c1, c3, c4, c9, c10, c6, c5 HAVING c4 != 0 LIMIT ALL OFFSET NULL
+) t ORDER BY 1, 2, 3, 4;
                      ?column?                      |        abs         |         c9          | c10 
 ---------------------------------------------------+--------------------+---------------------+-----
- ()ƯEFJAFquantiry                                  | 0.9900990099009901 | 3999-12-31 23:59:58 | t
+ \\1132165131651316153naming it á ú í à            | 1.8964468458152932 | 2004-10-19 10:23:54 | f
+ intervalMOẰNAJFK                                  | 1946.5770953294946 | 2004-10-19 10:23:54 | f
+ <>?}|!@#$%^&*()_+J%-2i30                          | 0.1878209798396722 | 0001-01-01 00:00:00 | f
+ มีวันที่ดีpaintings                                    |  2.178745008516407 | 2000-01-01 00:00:00 | t
+ que tenga un lindo día030-1923=0                  | 0.9332050640542904 | 2008-10-19 10:23:54 | f
  Tjos os tres difficileSort                        |  4.051032487176115 | 2019-10-19 10:23:54 | f
  <town>Toronto</town>txid txid                     | 1.8196202531645569 | 2000-01-01 00:00:00 | t
- \\1132165131651316153naming it á ú í à            | 1.8964468458152932 | 2004-10-19 10:23:54 | f
- มีวันที่ดีpaintings                                    |  2.178745008516407 | 2000-01-01 00:00:00 | t
- intervalMOẰNAJFK                                  | 1946.5770953294946 | 2004-10-19 10:23:54 | f
+ ()ƯEFJAFquantiry                                  | 0.9900990099009901 | 3999-12-31 23:59:58 | t
  ~!@#$!@#!@#@#格納用のドキュメント                 |  4.416607323988628 | 2008-10-19 10:23:54 | t
  システム設計検討資料チャート作成anything possible | 259.46234676395164 | 2019-10-19 10:23:54 | t
- <>?}|!@#$%^&*()_+J%-2i30                          | 0.1878209798396722 | 0001-01-01 00:00:00 | f
- que tenga un lindo día030-1923=0                  | 0.9332050640542904 | 2008-10-19 10:23:54 | f
 (10 rows)
 
 --Testcase 155:
 EXPLAIN VERBOSE SELECT count(*), count(c1), avg(c6)+stddev(c5), sum(c4/12) FROM tbl_pushdown WHERE c4 <> 0 HAVING count(*) >= 0 LIMIT 1 OFFSET 0;
                                                                                                                             QUERY PLAN                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=17.51..17.53 rows=1 width=56)
+ Limit  (cost=15.01..15.03 rows=1 width=56)
    Output: (count(*)), (count(c1)), (((avg(c6))::double precision + stddev(c5))), (sum((c4 / 12)))
-   ->  Aggregate  (cost=17.51..17.53 rows=1 width=56)
+   ->  Aggregate  (cost=15.01..15.03 rows=1 width=56)
          Output: count(*), count(c1), ((avg(c6))::double precision + stddev(c5)), sum((c4 / 12))
          Filter: (count(*) >= 0)
          ->  Foreign Scan on public.tbl_pushdown  (cost=0.00..0.00 rows=1000 width=52)
@@ -2422,31 +2436,30 @@ SELECT c1, avg(c4), c2, sum(c6), c5 FROM tbl_pushdown WHERE c4-c6 > c4 -c5 GROUP
 
 --Testcase 203:
 EXPLAIN VERBOSE SELECT stddev((c7->'values'->>1)::float8), avg((c7->'values'->>2)::float8), avg((c7->'values'->>1)::float8), stddev_samp((c7->'values'->>2)::float8) FROM tbl_pushdown WHERE c4-c6 > c4-c5 GROUP BY c6 HAVING c6 >= 0 LIMIT 5;
-                                                                                                                               QUERY PLAN                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=49.83..51.30 rows=5 width=36)
+                                                                                                                             QUERY PLAN                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=27.50..27.60 rows=5 width=36)
    Output: (stddev((((c7 -> 'values'::text) ->> 1))::double precision)), (avg((((c7 -> 'values'::text) ->> 2))::double precision)), (avg((((c7 -> 'values'::text) ->> 1))::double precision)), (stddev_samp((((c7 -> 'values'::text) ->> 2))::double precision)), c6
-   ->  GroupAggregate  (cost=49.83..108.83 rows=200 width=36)
+   ->  HashAggregate  (cost=27.50..31.50 rows=200 width=36)
          Output: stddev((((c7 -> 'values'::text) ->> 1))::double precision), avg((((c7 -> 'values'::text) ->> 2))::double precision), avg((((c7 -> 'values'::text) ->> 1))::double precision), stddev_samp((((c7 -> 'values'::text) ->> 2))::double precision), c6
          Group Key: tbl_pushdown.c6
-         ->  Sort  (cost=49.83..52.33 rows=1000 width=36)
-               Output: c6, c7
-               Sort Key: tbl_pushdown.c6
-               ->  Foreign Scan on public.tbl_pushdown  (cost=0.00..0.00 rows=1000 width=36)
-                     Output: c6, c7
-                     Filter: (((tbl_pushdown.c4 - tbl_pushdown.c6))::double precision > ((tbl_pushdown.c4)::double precision - tbl_pushdown.c5))
-                     Foreign Namespace: enhance_regress.tbl_pushdown
-                     Query document: { "pipeline" : [ { "$match" : { "c6" : { "$gte" : { "$numberInt" : "0" } } } }, { "$project" : { "c4" : { "$numberInt" : "1" }, "c5" : { "$numberInt" : "1" }, "c6" : { "$numberInt" : "1" }, "c7" : { "$numberInt" : "1" } } } ] }
-(13 rows)
+         ->  Foreign Scan on public.tbl_pushdown  (cost=0.00..0.00 rows=1000 width=36)
+               Output: _id, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10
+               Filter: (((tbl_pushdown.c4 - tbl_pushdown.c6))::double precision > ((tbl_pushdown.c4)::double precision - tbl_pushdown.c5))
+               Foreign Namespace: enhance_regress.tbl_pushdown
+               Query document: { "pipeline" : [ { "$match" : { "c6" : { "$gte" : { "$numberInt" : "0" } } } }, { "$project" : { "c4" : { "$numberInt" : "1" }, "c5" : { "$numberInt" : "1" }, "c6" : { "$numberInt" : "1" }, "c7" : { "$numberInt" : "1" } } } ] }
+(10 rows)
 
 --Testcase 204:
-SELECT stddev((c7->'values'->>1)::float8), avg((c7->'values'->>2)::float8), avg((c7->'values'->>1)::float8), stddev_samp((c7->'values'->>2)::float8) FROM tbl_pushdown WHERE c4-c6 > c4-c5 GROUP BY c6 HAVING c6 >= 0 LIMIT 5;
+SELECT * FROM (
+SELECT stddev((c7->'values'->>1)::float8), avg((c7->'values'->>2)::float8), avg((c7->'values'->>1)::float8), stddev_samp((c7->'values'->>2)::float8) FROM tbl_pushdown WHERE c4-c6 > c4-c5 GROUP BY c6 HAVING c6 >= 0 LIMIT 5
+) t ORDER BY 1, 2, 3, 4;
  stddev | avg |  avg   | stddev_samp 
 --------+-----+--------+-------------
-        | -23 |  767.3 |            
+        | -23 |    0.4 |            
         | -23 |   12.3 |            
         | -23 | 323.24 |            
-        | -23 |    0.4 |            
+        | -23 |  767.3 |            
 (4 rows)
 
 --Testcase 205:

@@ -54,6 +54,10 @@ typedef struct ConnCacheEntry
 static HTAB *ConnectionHash = NULL;
 
 static void mongo_inval_callback(Datum arg, int cacheid, uint32 hashvalue);
+static void make_new_connection(ConnCacheEntry *entry,
+								ForeignServer *server,
+								UserMapping *user,
+								MongoFdwOptions *opt);
 
 /*
  * mongo_get_connection
@@ -73,17 +77,22 @@ mongo_get_connection(ForeignServer *server, UserMapping *user,
 	if (ConnectionHash == NULL)
 	{
 		HASHCTL		ctl;
-
+#if PG_VERSION_NUM < 140000
 		MemSet(&ctl, 0, sizeof(ctl));
+		/* Allocate ConnectionHash in the cache context */
+		ctl.hcxt = CacheMemoryContext;
+#endif
 		ctl.keysize = sizeof(ConnCacheKey);
 		ctl.entrysize = sizeof(ConnCacheEntry);
 		ctl.hash = tag_hash;
-		/* Allocate ConnectionHash in the cache context */
-		ctl.hcxt = CacheMemoryContext;
 		ConnectionHash = hash_create("mongo_fdw connections", 8,
 									 &ctl,
-									 HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT);
+#if PG_VERSION_NUM < 140000
+									 HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+#else
+									 HASH_ELEM | HASH_BLOBS);
 
+#endif
 		/*
 		 * Register some callback functions that manage connection cleanup.
 		 * This should be done just once in each backend.
@@ -118,44 +127,7 @@ mongo_get_connection(ForeignServer *server, UserMapping *user,
 	}
 
 	if (entry->conn == NULL)
-	{
-#if PG_VERSION_NUM < 90600
-		Oid			umoid;
-#endif
-
-		entry->conn = MongoConnect(opt);
-		elog(DEBUG3, "new mongo_fdw connection %p for server \"%s:%d\"",
-			 entry->conn, opt->svr_address, opt->svr_port);
-
-		/*
-		 * Once the connection is established, then set the connection
-		 * invalidation flag to false, also set the server and user mapping
-		 * hash values.
-		 */
-		entry->invalidated = false;
-		entry->server_hashvalue =
-			GetSysCacheHashValue1(FOREIGNSERVEROID,
-								  ObjectIdGetDatum(server->serverid));
-#if PG_VERSION_NUM >= 90600
-		entry->mapping_hashvalue =
-			GetSysCacheHashValue1(USERMAPPINGOID,
-								  ObjectIdGetDatum(user->umid));
-#else
-		/* Pre-9.6, UserMapping doesn't store its OID, so look it up again */
-		umoid = GetSysCacheOid2(USERMAPPINGUSERSERVER,
-								ObjectIdGetDatum(user->userid),
-								ObjectIdGetDatum(user->serverid));
-		if (!OidIsValid(umoid))
-		{
-			/* Not found for the specific user -- try PUBLIC */
-			umoid = GetSysCacheOid2(USERMAPPINGUSERSERVER,
-									ObjectIdGetDatum(InvalidOid),
-									ObjectIdGetDatum(user->serverid));
-		}
-		entry->mapping_hashvalue =
-			GetSysCacheHashValue1(USERMAPPINGOID, ObjectIdGetDatum(umoid));
-#endif
-	}
+		make_new_connection(entry, server, user, opt);
 
 #ifdef META_DRIVER
 	/* Check if the existing or new connection is reachable/active or not? */
@@ -249,4 +221,52 @@ mongo_inval_callback(Datum arg, int cacheid, uint32 hashvalue)
 			 entry->mapping_hashvalue == hashvalue))
 			entry->invalidated = true;
 	}
+}
+
+/*
+ * Reset all transient state fields in the cached connection entry and
+ * establish new connection to the remote server.
+ */
+static void
+make_new_connection(ConnCacheEntry *entry,
+					ForeignServer *server,
+					UserMapping *user,
+					MongoFdwOptions *opt)
+{
+#if PG_VERSION_NUM < 90600
+	Oid			umoid;
+#endif
+
+	entry->conn = MongoConnect(opt);
+	elog(DEBUG3, "new mongo_fdw connection %p for server \"%s:%d\"",
+			entry->conn, opt->svr_address, opt->svr_port);
+
+	/*
+	 * Once the connection is established, then set the connection
+	 * invalidation flag to false, also set the server and user mapping
+	 * hash values.
+	 */
+	entry->invalidated = false;
+	entry->server_hashvalue =
+		GetSysCacheHashValue1(FOREIGNSERVEROID,
+								ObjectIdGetDatum(server->serverid));
+#if PG_VERSION_NUM >= 90600
+	entry->mapping_hashvalue =
+		GetSysCacheHashValue1(USERMAPPINGOID,
+								ObjectIdGetDatum(user->umid));
+#else
+	/* Pre-9.6, UserMapping doesn't store its OID, so look it up again */
+	umoid = GetSysCacheOid2(USERMAPPINGUSERSERVER,
+							ObjectIdGetDatum(user->userid),
+							ObjectIdGetDatum(user->serverid));
+	if (!OidIsValid(umoid))
+	{
+		/* Not found for the specific user -- try PUBLIC */
+		umoid = GetSysCacheOid2(USERMAPPINGUSERSERVER,
+								ObjectIdGetDatum(InvalidOid),
+								ObjectIdGetDatum(user->serverid));
+	}
+	entry->mapping_hashvalue =
+		GetSysCacheHashValue1(USERMAPPINGOID, ObjectIdGetDatum(umoid));
+#endif
 }

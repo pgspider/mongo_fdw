@@ -49,3 +49,12 @@ endif
 ifeq (,$(findstring $(MAJORVERSION), 9.6 10 11 12 13 14))
     $(error PostgreSQL 9.6, 10, 11, 12, 13, or 14 is required to compile this extension)
 endif
+
+ifdef REGRESS_PREFIX
+REGRESS_PREFIX_SUB = $(REGRESS_PREFIX)
+else
+REGRESS_PREFIX_SUB = $(VERSION)
+endif
+
+REGRESS := $(addprefix $(REGRESS_PREFIX_SUB)/,$(REGRESS))
+$(shell mkdir -p results/$(REGRESS_PREFIX_SUB)/extra)

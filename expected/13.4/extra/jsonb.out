@@ -61,410 +61,454 @@ SELECT jsonb_agg(q ORDER BY x NULLS FIRST, y)
 (1 row)
 
 -- jsonb extraction functions
---Testcase 10:
-CREATE TEMP TABLE test_jsonb (
-       json_type text,
-       test_json jsonb
-);
 --Testcase 11:
-CREATE FOREIGN TABLE test_jsonb (_id name, json_type text, test_json jsonb)
+CREATE FOREIGN TABLE test_jsonb (json_type text, test_json jsonb)
  SERVER mongo_server OPTIONS (database 'jsonb_regress', collection 'test_jsonb');
 --Testcase 12:
 EXPLAIN VERBOSE SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'scalar';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
-   Output: (test_json -> 'x'::text)
-   Filter: (test_jsonb.json_type = 'scalar'::text)
-(3 rows)
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
+   Output: ((test_json -> 'x'::text))
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "scalar" } } }, { "$project" : { "ref0" : "$test_json.x", "ref1" : "$json_type" } } ] }
+(4 rows)
 
 --Testcase 13:
 SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'scalar';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 14:
 EXPLAIN VERBOSE SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'array';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
-   Output: (test_json -> 'x'::text)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
+   Output: ((test_json -> 'x'::text))
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "ref0" : "$test_json.x", "ref1" : "$json_type" } } ] }
+(4 rows)
 
 --Testcase 15:
 SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'array';
  ?column? 
 ----------
-(0 rows)
+ []
+(1 row)
 
 --Testcase 16:
 EXPLAIN VERBOSE SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'object';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
-   Output: (test_json -> 'x'::text)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
+   Output: ((test_json -> 'x'::text))
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "ref0" : "$test_json.x", "ref1" : "$json_type" } } ] }
+(4 rows)
 
 --Testcase 17:
 SELECT test_json -> 'x' FROM test_jsonb WHERE json_type = 'object';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 18:
 EXPLAIN VERBOSE SELECT test_json -> 'field2' FROM test_jsonb WHERE json_type = 'object';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
-   Output: (test_json -> 'field2'::text)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
+   Output: ((test_json -> 'field2'::text))
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "ref0" : "$test_json.field2", "ref1" : "$json_type" } } ] }
+(4 rows)
 
 --Testcase 19:
 SELECT test_json -> 'field2' FROM test_jsonb WHERE json_type = 'object';
  ?column? 
 ----------
-(0 rows)
+ "val2"
+(1 row)
 
 --Testcase 20:
 EXPLAIN VERBOSE SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'scalar';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 'field2'::text)
-   Filter: (test_jsonb.json_type = 'scalar'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "scalar" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 21:
 SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'scalar';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 22:
 EXPLAIN VERBOSE SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'array';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 'field2'::text)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 23:
 SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'array';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 24:
 EXPLAIN VERBOSE SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'object';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 'field2'::text)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 25:
 SELECT test_json ->> 'field2' FROM test_jsonb WHERE json_type = 'object';
  ?column? 
 ----------
-(0 rows)
+ val2
+(1 row)
 
 --Testcase 26:
 EXPLAIN VERBOSE SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'scalar';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json -> 2)
-   Filter: (test_jsonb.json_type = 'scalar'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "scalar" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 27:
 SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'scalar';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 28:
 EXPLAIN VERBOSE SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'array';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json -> 2)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 29:
 SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'array';
  ?column? 
 ----------
-(0 rows)
+ "two"
+(1 row)
 
 --Testcase 30:
 EXPLAIN VERBOSE SELECT test_json -> 9 FROM test_jsonb WHERE json_type = 'array';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json -> 9)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 31:
 SELECT test_json -> 9 FROM test_jsonb WHERE json_type = 'array';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 32:
 EXPLAIN VERBOSE SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'object';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json -> 2)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 33:
 SELECT test_json -> 2 FROM test_jsonb WHERE json_type = 'object';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 34:
 EXPLAIN VERBOSE SELECT test_json ->> 6 FROM test_jsonb WHERE json_type = 'array';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 6)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 35:
 SELECT test_json ->> 6 FROM test_jsonb WHERE json_type = 'array';
- ?column? 
-----------
-(0 rows)
+ ?column?  
+-----------
+ [1, 2, 3]
+(1 row)
 
 --Testcase 36:
 EXPLAIN VERBOSE SELECT test_json ->> 7 FROM test_jsonb WHERE json_type = 'array';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 7)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 37:
 SELECT test_json ->> 7 FROM test_jsonb WHERE json_type = 'array';
- ?column? 
-----------
-(0 rows)
+ ?column?  
+-----------
+ {"f1": 9}
+(1 row)
 
 --Testcase 38:
 EXPLAIN VERBOSE SELECT test_json ->> 'field4' FROM test_jsonb WHERE json_type = 'object';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 'field4'::text)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 39:
 SELECT test_json ->> 'field4' FROM test_jsonb WHERE json_type = 'object';
  ?column? 
 ----------
-(0 rows)
+ 4
+(1 row)
 
 --Testcase 40:
 EXPLAIN VERBOSE SELECT test_json ->> 'field5' FROM test_jsonb WHERE json_type = 'object';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 'field5'::text)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 41:
 SELECT test_json ->> 'field5' FROM test_jsonb WHERE json_type = 'object';
- ?column? 
-----------
-(0 rows)
+ ?column?  
+-----------
+ [1, 2, 3]
+(1 row)
 
 --Testcase 42:
 EXPLAIN VERBOSE SELECT test_json ->> 'field6' FROM test_jsonb WHERE json_type = 'object';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 'field6'::text)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 43:
 SELECT test_json ->> 'field6' FROM test_jsonb WHERE json_type = 'object';
- ?column? 
-----------
-(0 rows)
+ ?column?  
+-----------
+ {"f1": 9}
+(1 row)
 
 --Testcase 44:
 EXPLAIN VERBOSE SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'scalar';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 2)
-   Filter: (test_jsonb.json_type = 'scalar'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "scalar" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 45:
 SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'scalar';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 46:
 EXPLAIN VERBOSE SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'array';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 2)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 47:
 SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'array';
  ?column? 
 ----------
-(0 rows)
+ two
+(1 row)
 
 --Testcase 48:
 EXPLAIN VERBOSE SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'object';
-                              QUERY PLAN                              
-----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=32)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=32)
    Output: (test_json ->> 2)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 49:
 SELECT test_json ->> 2 FROM test_jsonb WHERE json_type = 'object';
  ?column? 
 ----------
-(0 rows)
+ 
+(1 row)
 
 --Testcase 50:
 EXPLAIN VERBOSE SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'scalar';
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- ProjectSet  (cost=0.00..23.03 rows=400 width=32)
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..507.50 rows=100000 width=32)
    Output: jsonb_object_keys(test_json)
-   ->  Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.00 rows=4 width=32)
+   ->  Foreign Scan on public.test_jsonb  (cost=0.00..0.00 rows=1000 width=32)
          Output: json_type, test_json
-         Filter: (test_jsonb.json_type = 'scalar'::text)
-(5 rows)
+         Foreign Namespace: jsonb_regress.test_jsonb
+         Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "scalar" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(6 rows)
 
 --Testcase 51:
 SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'scalar';
- jsonb_object_keys 
--------------------
-(0 rows)
-
+ERROR:  cannot call jsonb_object_keys on a scalar
 --Testcase 52:
 EXPLAIN VERBOSE SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'array';
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- ProjectSet  (cost=0.00..23.03 rows=400 width=32)
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..507.50 rows=100000 width=32)
    Output: jsonb_object_keys(test_json)
-   ->  Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.00 rows=4 width=32)
+   ->  Foreign Scan on public.test_jsonb  (cost=0.00..0.00 rows=1000 width=32)
          Output: json_type, test_json
-         Filter: (test_jsonb.json_type = 'array'::text)
-(5 rows)
+         Foreign Namespace: jsonb_regress.test_jsonb
+         Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(6 rows)
 
 --Testcase 53:
 SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'array';
- jsonb_object_keys 
--------------------
-(0 rows)
-
+ERROR:  cannot call jsonb_object_keys on an array
 --Testcase 54:
 EXPLAIN VERBOSE SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'object';
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- ProjectSet  (cost=0.00..23.03 rows=400 width=32)
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ProjectSet  (cost=0.00..507.50 rows=100000 width=32)
    Output: jsonb_object_keys(test_json)
-   ->  Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.00 rows=4 width=32)
+   ->  Foreign Scan on public.test_jsonb  (cost=0.00..0.00 rows=1000 width=32)
          Output: json_type, test_json
-         Filter: (test_jsonb.json_type = 'object'::text)
-(5 rows)
+         Foreign Namespace: jsonb_regress.test_jsonb
+         Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(6 rows)
 
 --Testcase 55:
 SELECT jsonb_object_keys(test_json) FROM test_jsonb WHERE json_type = 'object';
  jsonb_object_keys 
 -------------------
-(0 rows)
+ field1
+ field2
+ field3
+ field4
+ field5
+ field6
+(6 rows)
 
 -- nulls
 --Testcase 56:
 EXPLAIN VERBOSE SELECT (test_json->'field3') IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'object';
-                             QUERY PLAN                              
----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=1)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=1)
    Output: ((test_json -> 'field3'::text) IS NULL)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 57:
 SELECT (test_json->'field3') IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'object';
  expect_false 
 --------------
-(0 rows)
+ f
+(1 row)
 
 --Testcase 58:
 EXPLAIN VERBOSE SELECT (test_json->>'field3') IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'object';
-                             QUERY PLAN                              
----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=1)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=1)
    Output: ((test_json ->> 'field3'::text) IS NULL)
-   Filter: (test_jsonb.json_type = 'object'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 59:
 SELECT (test_json->>'field3') IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'object';
  expect_true 
 -------------
-(0 rows)
+ t
+(1 row)
 
 --Testcase 60:
 EXPLAIN VERBOSE SELECT (test_json->3) IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'array';
-                             QUERY PLAN                              
----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=1)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=1)
    Output: ((test_json -> 3) IS NULL)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 61:
 SELECT (test_json->3) IS NULL AS expect_false FROM test_jsonb WHERE json_type = 'array';
  expect_false 
 --------------
-(0 rows)
+ f
+(1 row)
 
 --Testcase 62:
 EXPLAIN VERBOSE SELECT (test_json->>3) IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'array';
-                             QUERY PLAN                              
----------------------------------------------------------------------
- Seq Scan on pg_temp_3.test_jsonb  (cost=0.00..21.01 rows=4 width=1)
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb  (cost=0.00..2.50 rows=1000 width=1)
    Output: ((test_json ->> 3) IS NULL)
-   Filter: (test_jsonb.json_type = 'array'::text)
-(3 rows)
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
 
 --Testcase 63:
 SELECT (test_json->>3) IS NULL AS expect_true FROM test_jsonb WHERE json_type = 'array';
  expect_true 
 -------------
-(0 rows)
+ t
+(1 row)
 
 -- array exists - array elements should behave as keys
 --Testcase 64:
@@ -2968,7 +3012,7 @@ DROP EXTENSION mongo_fdw CASCADE;
 NOTICE:  drop cascades to 7 other objects
 DETAIL:  drop cascades to server mongo_server
 drop cascades to foreign table rows
-drop cascades to foreign table public.test_jsonb
+drop cascades to foreign table test_jsonb
 drop cascades to foreign table testjsonb
 drop cascades to foreign table foo
 drop cascades to foreign table jspoptest

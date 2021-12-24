@@ -740,6 +740,13 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 
 				getTypeOutputInfo(id, &outputFunctionId, &typeVarLength);
 				outputString = OidOutputFunctionCall(outputFunctionId, value);
+
+				/* enclose null string by quotes,
+				 * this is the valid JSON representation of null.
+				 */
+				if (strcmp(outputString, "null") == 0)
+					outputString = "\"null\"";
+
 				o = JsonTokenerPrase(outputString);
 
 				if (o == NULL)
