@@ -1,6 +1,6 @@
 # mongo_fdw/Makefile
 #
-# Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
+# Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
 # Portions Copyright © 2012–2014 Citus Data, Inc.
 #
 
@@ -11,36 +11,40 @@ MODULE_big = mongo_fdw
 # on another platform, change env_posix.os in MONGO_OBJS with the appropriate
 # environment object file.
 #
-MONGO_DRIVER = mongo-c-driver
-MONGO_PATH = $(MONGO_DRIVER)/src
-MONGO_OBJS = $(MONGO_PATH)/bson.os $(MONGO_PATH)/encoding.os $(MONGO_PATH)/md5.os \
-             $(MONGO_PATH)/mongo.os $(MONGO_PATH)/numbers.os $(MONGO_PATH)/env.os
 LIBJSON = json-c
-LIBJSON_OBJS =	$(LIBJSON)/json_util.o $(LIBJSON)/json_object.o $(LIBJSON)/json_tokener.o \
-				$(LIBJSON)/json_object_iterator.o $(LIBJSON)/printbuf.o $(LIBJSON)/linkhash.o \
-				$(LIBJSON)/arraylist.o $(LIBJSON)/random_seed.o $(LIBJSON)/debug.o $(LIBJSON)/strerror_override.o
-PG_CPPFLAGS = --std=c99 -I$(MONGO_PATH) -I$(LIBJSON)
-OBJS = connection.o option.o  mongo_wrapper.o mongo_fdw.o mongo_query.o $(MONGO_OBJS) $(LIBJSON_OBJS)
+LIBJSON_OBJS =  $(LIBJSON)/json_util.o $(LIBJSON)/json_object.o $(LIBJSON)/json_tokener.o \
+                                $(LIBJSON)/json_object_iterator.o $(LIBJSON)/printbuf.o $(LIBJSON)/linkhash.o \
+                                $(LIBJSON)/arraylist.o $(LIBJSON)/random_seed.o $(LIBJSON)/debug.o $(LIBJSON)/strerror_override.o
+
+MONGO_INCLUDE = $(shell pkg-config --cflags libmongoc-1.0)
+PG_CPPFLAGS = --std=c99 $(MONGO_INCLUDE) -I$(LIBJSON) -DMETA_DRIVER
+SHLIB_LINK = $(shell pkg-config --libs libmongoc-1.0)
+
+OBJS = connection.o option.o mongo_wrapper_meta.o mongo_fdw.o mongo_query.o deparse.o $(LIBJSON_OBJS)
+
 
 EXTENSION = mongo_fdw
 DATA = mongo_fdw--1.0.sql  mongo_fdw--1.1.sql mongo_fdw--1.0--1.1.sql
 
-REGRESS = server_options connection_validation dml select pushdown extra/aggregates extra/join extra/json extra/jsonb extra/limit extra/enhance
+REGRESS = server_options connection_validation dml select pushdown column_remapping join_pushdown extra/aggregates extra/join extra/json extra/jsonb extra/limit extra/enhance
 REGRESS_OPTS = --load-extension=$(EXTENSION)
-
-$(MONGO_DRIVER)/%.os:
-	$(MAKE) -C $(MONGO_DRIVER) $*.os
-#$(LIBJSON)/json.o:
-#	$(MAKE) -C $(LIBJSON)
 
 #
 # Users need to specify their Postgres installation path through pg_config. For
 # example: /usr/local/pgsql/bin/pg_config or /usr/lib/postgresql/9.1/bin/pg_config
 #
 
+ifdef USE_PGXS
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+else
+SHLIB_PREREQS = submake-libpq
+subdir = contrib/mongo_fdw
+top_builddir = ../..
+include $(top_builddir)/src/Makefile.global
+include $(top_srcdir)/contrib/contrib-global.mk
+endif
 
 ifndef MAJORVERSION
     MAJORVERSION := $(basename $(VERSION))

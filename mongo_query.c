@@ -4,7 +4,7 @@
  * 		FDW query handling for mongo_fdw
  *
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
- * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
+ * Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
  * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
@@ -62,7 +62,6 @@ typedef struct foreign_glob_cxt
 	unsigned short opexprcount;
 	Relids		relids;			/* relids of base relations in the underlying
 								 * scan */
-	bool		has_compare_op;	/* True if having comparing opertator */
 } foreign_glob_cxt;
 
 /*
@@ -81,6 +80,7 @@ typedef struct foreign_loc_cxt
 	Oid			collation;		/* OID of current collation, if any */
 	FDWCollateState state;		/* state of current collation choice */
 	bool		has_scalar_array_op_expr; /* True if expression is ScalarArrayOpExpr */
+	bool		has_compare_op;	/* True if having comparing opertator */
 } foreign_loc_cxt;
 
 typedef enum MongoOperatorsSupport
@@ -112,7 +112,8 @@ typedef struct qdoc_expr_cxt
 	EState		*estate;			/* Executor state */
 
 	Oid			rel_oid;			/* OID of the relation */
-	Index		rtindex;
+	Index		rtindex;			/* Range table index */
+	Index		inner_rtindex;		/* Range table index of inner relation */
 	int			conds_num;			/* Number of remote conditions */
 	RelOptKind	reloptkind;			/* Relation kind of the foreign relation we are planning for */
 	RelOptKind	scan_reloptkind;	/* Relation kind of the underlying scan relation */
@@ -128,6 +129,10 @@ typedef struct qdoc_expr_cxt
 	char		*innerel_name;		/* Name of inner relation */
 	char		*outerrel_name;		/* Name of outer relation */
 	List		*innerel_name_list; /* List name of inner relation */
+	bool		is_join_expr;		/* Is join condition */
+	int			rte_index_offset;	/* Offset when translate between planner and exectuor range table index */
+	List		*inner_pipeline_ref_list;	/* Reference list from inner(join) pipeline */
+	bool		is_in_grouping_clause;		/* Mark if the deparsing is in grouping clause */
 } qdoc_expr_cxt;
 
 typedef struct deparse_expr_cxt
@@ -145,15 +150,6 @@ typedef struct pull_aggref_list_context
 } pull_aggref_list_context;
 
 /* Local functions forward declarations */
-static Expr *FindArgumentOfType(List *argumentList, NodeTag argumentType);
-static List *EqualityOperatorList(List *operatorList);
-static List *UniqueColumnList(List *operatorList);
-static List *ColumnOperatorList(Var *column, List *operatorList);
-static void AppendConstantValue(BSON *queryDocument, const char *keyName,
-								Const *constant);
-static void AppendParamValue(BSON *queryDocument, const char *keyName,
-							 Param *paramNode,
-							 ForeignScanState *scanStateNode);
 static bool foreign_expr_walker(Node *node,
 								foreign_glob_cxt *glob_cxt,
 								foreign_loc_cxt *outer_cxt);
@@ -180,172 +176,15 @@ static void mongo_build_expr_doc(BSON *qdoc, Expr *node, qdoc_expr_cxt *context)
 static void mongo_deparseExpr(Expr *node, deparse_expr_cxt *deparse_context);
 static void mongo_deparseRelation(StringInfo buf, Relation rel);
 static void mongo_get_func_info_scalar_array (Oid const_array_type, Oid *consttype, PGFunction *func_addr);
+static void fetch_executor_relation_offset(MongoPlanerJoinInfo *join_info, qdoc_expr_cxt *context);
 
 /*
- * FindArgumentOfType
- *		Walks over the given argument list, looks for an argument with the
- *		given type, and returns the argument if it is found.
- */
-static Expr *
-FindArgumentOfType(List *argumentList, NodeTag argumentType)
-{
-	Expr	   *foundArgument = NULL;
-	ListCell   *argumentCell;
-
-	foreach(argumentCell, argumentList)
-	{
-		Expr	   *argument = (Expr *) lfirst(argumentCell);
-
-		/* For RelabelType type, examine the inner node */
-		if (IsA(argument, RelabelType))
-			argument = ((RelabelType *) argument)->arg;
-
-		if (nodeTag(argument) == argumentType)
-		{
-			foundArgument = argument;
-			break;
-		}
-	}
-
-	return foundArgument;
-}
-
-/*
- * QueryDocument
- *		Takes in the applicable operator expressions for a relation and
- *		converts these expressions into equivalent queries in MongoDB.
- *
- * For now, this function can only transform simple comparison expressions, and
- * returns these transformed expressions in a BSON document.  For example,
- * simple expressions:
- * "l_shipdate >= date '1994-01-01' AND l_shipdate < date '1995-01-01'" become
- * "l_shipdate: { $gte: new Date(757382400000), $lt: new Date(788918400000) }".
- */
-BSON *
-QueryDocument(Oid relationId, List *opExpressionList,
-			  ForeignScanState *scanStateNode)
-{
-	List	   *equalityOperatorList;
-	List	   *comparisonOperatorList;
-	List	   *columnList;
-	ListCell   *equalityOperatorCell;
-	ListCell   *columnCell;
-	BSON	   *queryDocument = BsonCreate();
-
-	/*
-	 * We distinguish between equality expressions and others since we need to
-	 * insert the latter (<, >, <=, >=, <>) as separate sub-documents into the
-	 * BSON query object.
-	 */
-	equalityOperatorList = EqualityOperatorList(opExpressionList);
-	comparisonOperatorList = list_difference(opExpressionList,
-											 equalityOperatorList);
-
-	/* Append equality expressions to the query */
-	foreach(equalityOperatorCell, equalityOperatorList)
-	{
-		OpExpr	   *equalityOperator = (OpExpr *) lfirst(equalityOperatorCell);
-		Oid			columnId = InvalidOid;
-		char	   *columnName;
-		Const	   *constant;
-		Param	   *paramNode;
-		List	   *argumentList = equalityOperator->args;
-		Var		   *column = (Var *) FindArgumentOfType(argumentList, T_Var);
-
-		constant = (Const *) FindArgumentOfType(argumentList, T_Const);
-		paramNode = (Param *) FindArgumentOfType(argumentList, T_Param);
-
-		columnId = column->varattno;
-#if PG_VERSION_NUM < 110000
-		columnName = get_relid_attribute_name(relationId, columnId);
-#else
-		columnName = get_attname(relationId, columnId, false);
-#endif
-
-		if (constant != NULL)
-			AppendConstantValue(queryDocument, columnName, constant);
-		else
-			AppendParamValue(queryDocument, columnName, paramNode,
-							 scanStateNode);
-	}
-
-	/*
-	 * For comparison expressions, we need to group them by their columns and
-	 * append all expressions that correspond to a column as one sub-document.
-	 *
-	 * Otherwise, even when we have two expressions to define the upper- and
-	 * lower-bound of a range, Mongo uses only one of these expressions during
-	 * an index search.
-	 */
-	columnList = UniqueColumnList(comparisonOperatorList);
-
-	/* Append comparison expressions, grouped by columns, to the query */
-	foreach(columnCell, columnList)
-	{
-		Var		   *column = (Var *) lfirst(columnCell);
-		Oid			columnId = InvalidOid;
-		char	   *columnName;
-		List	   *columnOperatorList;
-		ListCell   *columnOperatorCell;
-		BSON		childDocument;
-
-		columnId = column->varattno;
-#if PG_VERSION_NUM < 110000
-		columnName = get_relid_attribute_name(relationId, columnId);
-#else
-		columnName = get_attname(relationId, columnId, false);
-#endif
-
-		/* Find all expressions that correspond to the column */
-		columnOperatorList = ColumnOperatorList(column,
-												comparisonOperatorList);
-
-		/* For comparison expressions, start a sub-document */
-		BsonAppendStartObject(queryDocument, columnName, &childDocument);
-
-		foreach(columnOperatorCell, columnOperatorList)
-		{
-			OpExpr	   *columnOperator = (OpExpr *) lfirst(columnOperatorCell);
-			char	   *operatorName;
-			char	   *mongoOperatorName;
-			List	   *argumentList = columnOperator->args;
-			Const	   *constant = (Const *) FindArgumentOfType(argumentList,
-																T_Const);
-
-			operatorName = get_opname(columnOperator->opno);
-			mongoOperatorName = MongoOperatorName(operatorName);
-#ifdef META_DRIVER
-			AppendConstantValue(&childDocument, mongoOperatorName, constant);
-#else
-			AppendConstantValue(queryDocument, mongoOperatorName, constant);
-#endif
-		}
-		BsonAppendFinishObject(queryDocument, &childDocument);
-	}
-
-	if (!BsonFinish(queryDocument))
-	{
-#ifdef META_DRIVER
-		ereport(ERROR,
-				(errmsg("could not create document for query"),
-				 errhint("BSON flags: %d", queryDocument->flags)));
-#else
-		ereport(ERROR,
-				(errmsg("could not create document for query"),
-				 errhint("BSON error: %d", queryDocument->err)));
-#endif
-	}
-
-	return queryDocument;
-}
-
-/*
- * MongoOperatorName
+ * mongo_operator_name
  * 		Takes in the given PostgreSQL comparison operator name, and returns its
  * 		equivalent in MongoDB.
  */
 char *
-MongoOperatorName(const char *operatorName)
+mongo_operator_name(const char *operatorName)
 {
 	const char *mongoOperatorName = NULL;
 	const int32 nameCount = 5;
@@ -371,137 +210,34 @@ MongoOperatorName(const char *operatorName)
 }
 
 /*
- * EqualityOperatorList
- *		Finds the equality (=) operators in the given list, and returns these
- *		operators in a new list.
- */
-static List *
-EqualityOperatorList(List *operatorList)
-{
-	List	   *equalityOperatorList = NIL;
-	ListCell   *operatorCell;
-
-	foreach(operatorCell, operatorList)
-	{
-		OpExpr	   *operator = (OpExpr *) lfirst(operatorCell);
-
-		if (strncmp(get_opname(operator->opno), EQUALITY_OPERATOR_NAME,
-					NAMEDATALEN) == 0)
-			equalityOperatorList = lappend(equalityOperatorList, operator);
-	}
-
-	return equalityOperatorList;
-}
-
-/*
- * UniqueColumnList
- *		Walks over the given operator list, and extracts the column argument in
- *		each operator.
- *
- * The function then de-duplicates extracted columns, and returns them in a new
- * list.
- */
-static List *
-UniqueColumnList(List *operatorList)
-{
-	List	   *uniqueColumnList = NIL;
-	ListCell   *operatorCell;
-
-	foreach(operatorCell, operatorList)
-	{
-		OpExpr	   *operator = (OpExpr *) lfirst(operatorCell);
-		List	   *argumentList = operator->args;
-		Var		   *column = (Var *) FindArgumentOfType(argumentList, T_Var);
-
-		/* List membership is determined via column's equal() function */
-		uniqueColumnList = list_append_unique(uniqueColumnList, column);
-	}
-
-	return uniqueColumnList;
-}
-
-/*
- * ColumnOperatorList
- *		Finds all expressions that correspond to the given column, and returns
- *		them in a new list.
- */
-static List *
-ColumnOperatorList(Var *column, List *operatorList)
-{
-	List	   *columnOperatorList = NIL;
-	ListCell   *operatorCell;
-
-	foreach(operatorCell, operatorList)
-	{
-		OpExpr	   *operator = (OpExpr *) lfirst(operatorCell);
-		List	   *argumentList = operator->args;
-		Var		   *foundColumn = (Var *) FindArgumentOfType(argumentList,
-															 T_Var);
-
-		if (equal(column, foundColumn))
-			columnOperatorList = lappend(columnOperatorList, operator);
-	}
-
-	return columnOperatorList;
-}
-
-static void
-AppendParamValue(BSON *queryDocument, const char *keyName, Param *paramNode,
-				 ForeignScanState *scanStateNode)
-{
-	ExprState  *param_expr;
-	Datum		param_value;
-	bool		isNull;
-	ExprContext *econtext;
-
-	if (scanStateNode == NULL)
-		return;
-
-	econtext = scanStateNode->ss.ps.ps_ExprContext;
-
-	/* Prepare for parameter expression evaluation */
-	param_expr = ExecInitExpr((Expr *) paramNode, (PlanState *) scanStateNode);
-
-	/* Evaluate the parameter expression */
-#if PG_VERSION_NUM >= 100000
-	param_value = ExecEvalExpr(param_expr, econtext, &isNull);
-#else
-	param_value = ExecEvalExpr(param_expr, econtext, &isNull, NULL);
-#endif
-
-	AppendMongoValue(queryDocument, keyName, param_value, isNull,
-					 paramNode->paramtype);
-}
-
-/*
- * AppendConstantValue
+ * append_constant_value
  *		Appends to the query document the key name and constant value.
  *
  * The function translates the constant value from its PostgreSQL type
  * to its MongoDB equivalent.
  */
-static void
-AppendConstantValue(BSON *queryDocument, const char *keyName, Const *constant)
+void
+append_constant_value(BSON *queryDocument, const char *keyName, Const *constant)
 {
 	if (constant->constisnull)
 	{
-		BsonAppendNull(queryDocument, keyName);
+		bsonAppendNull(queryDocument, keyName);
 		return;
 	}
 
-	AppendMongoValue(queryDocument, keyName, constant->constvalue, false,
-					 constant->consttype);
+	append_mongo_value(queryDocument, keyName, constant->constvalue, false,
+					   constant->consttype);
 }
 
 bool
-AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
-				 bool isnull, Oid id)
+append_mongo_value(BSON *queryDocument, const char *keyName, Datum value,
+				   bool isnull, Oid id)
 {
 	bool		status = false;
 
 	if (isnull)
 	{
-		status = BsonAppendNull(queryDocument, keyName);
+		status = bsonAppendNull(queryDocument, keyName);
 		return status;
 	}
 
@@ -511,7 +247,7 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 			{
 				int16		valueInt = DatumGetInt16(value);
 
-				status = BsonAppendInt32(queryDocument, keyName,
+				status = bsonAppendInt32(queryDocument, keyName,
 										 (int) valueInt);
 			}
 			break;
@@ -519,21 +255,21 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 			{
 				int32		valueInt = DatumGetInt32(value);
 
-				status = BsonAppendInt32(queryDocument, keyName, valueInt);
+				status = bsonAppendInt32(queryDocument, keyName, valueInt);
 			}
 			break;
 		case INT8OID:
 			{
 				int64		valueLong = DatumGetInt64(value);
 
-				status = BsonAppendInt64(queryDocument, keyName, valueLong);
+				status = bsonAppendInt64(queryDocument, keyName, valueLong);
 			}
 			break;
 		case FLOAT4OID:
 			{
 				float4		valueFloat = DatumGetFloat4(value);
 
-				status = BsonAppendDouble(queryDocument, keyName,
+				status = bsonAppendDouble(queryDocument, keyName,
 										  (double) valueFloat);
 			}
 			break;
@@ -541,7 +277,7 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 			{
 				float8		valueFloat = DatumGetFloat8(value);
 
-				status = BsonAppendDouble(queryDocument, keyName, valueFloat);
+				status = bsonAppendDouble(queryDocument, keyName, valueFloat);
 			}
 			break;
 		case NUMERICOID:
@@ -550,20 +286,21 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 															 value);
 				float8		valueFloat = DatumGetFloat8(valueDatum);
 
-				status = BsonAppendDouble(queryDocument, keyName, valueFloat);
+				status = bsonAppendDouble(queryDocument, keyName, valueFloat);
 			}
 			break;
 		case BOOLOID:
 			{
 				bool		valueBool = DatumGetBool(value);
 
-				status = BsonAppendBool(queryDocument, keyName,
+				status = bsonAppendBool(queryDocument, keyName,
 										(int) valueBool);
 			}
 			break;
 		case BPCHAROID:
 		case VARCHAROID:
 		case TEXTOID:
+		case NAMEOID:
 			{
 				char	   *outputString;
 				Oid			outputFunctionId;
@@ -571,7 +308,18 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 
 				getTypeOutputInfo(id, &outputFunctionId, &typeVarLength);
 				outputString = OidOutputFunctionCall(outputFunctionId, value);
-				status = BsonAppendUTF8(queryDocument, keyName, outputString);
+
+				if (strcmp(keyName, "_id") == 0)
+				{
+					bool		typeVarLength;
+					bson_oid_t	bsonObjectId;
+
+					memset(bsonObjectId.bytes, 0, sizeof(bsonObjectId.bytes));
+					bsonOidFromString(&bsonObjectId, outputString);
+					status = bsonAppendOid(queryDocument, keyName, &bsonObjectId);
+				}
+				else
+					status = bsonAppendUTF8(queryDocument, keyName, outputString);
 			}
 			break;
 		case BYTEAOID:
@@ -596,28 +344,14 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 					bson_oid_t	oid;
 
 					bson_oid_init_from_data(&oid, (const uint8_t *) data);
-					status = BsonAppendOid(queryDocument, keyName, &oid);
+					status = bsonAppendOid(queryDocument, keyName, &oid);
 				}
 				else
-					status = BsonAppendBinary(queryDocument, keyName, data,
+					status = bsonAppendBinary(queryDocument, keyName, data,
 											  len);
 #else
-				status = BsonAppendBinary(queryDocument, keyName, data, len);
+				status = bsonAppendBinary(queryDocument, keyName, data, len);
 #endif
-			}
-			break;
-		case NAMEOID:
-			{
-				char	   *outputString;
-				Oid			outputFunctionId;
-				bool		typeVarLength;
-				bson_oid_t	bsonObjectId;
-
-				memset(bsonObjectId.bytes, 0, sizeof(bsonObjectId.bytes));
-				getTypeOutputInfo(id, &outputFunctionId, &typeVarLength);
-				outputString = OidOutputFunctionCall(outputFunctionId, value);
-				BsonOidFromString(&bsonObjectId, outputString);
-				status = BsonAppendOid(queryDocument, keyName, &bsonObjectId);
 			}
 			break;
 		case DATEOID:
@@ -628,7 +362,7 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 				int64		valueMicroSecs = valueTimestamp + POSTGRES_TO_UNIX_EPOCH_USECS;
 				int64		valueMilliSecs = valueMicroSecs / 1000;
 
-				status = BsonAppendDate(queryDocument, keyName,
+				status = bsonAppendDate(queryDocument, keyName,
 										valueMilliSecs);
 			}
 			break;
@@ -639,7 +373,7 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 				int64		valueMicroSecs = valueTimestamp + POSTGRES_TO_UNIX_EPOCH_USECS;
 				int64		valueMilliSecs = valueMicroSecs / 1000;
 
-				status = BsonAppendDate(queryDocument, keyName,
+				status = bsonAppendDate(queryDocument, keyName,
 										valueMilliSecs);
 			}
 			break;
@@ -663,7 +397,7 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 				deconstruct_array(array, elmtype, elmlen, elmbyval, elmalign,
 								  &elem_values, &elem_nulls, &num_elems);
 
-				BsonAppendStartArray(queryDocument, keyName, &childDocument);
+				bsonAppendStartArray(queryDocument, keyName, &childDocument);
 				for (i = 0; i < num_elems; i++)
 				{
 					Datum		valueDatum;
@@ -676,14 +410,14 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 													 elem_values[i]);
 					valueFloat = DatumGetFloat8(valueDatum);
 #ifdef META_DRIVER
-					status = BsonAppendDouble(&childDocument, keyName,
+					status = bsonAppendDouble(&childDocument, keyName,
 											  valueFloat);
 #else
-					status = BsonAppendDouble(queryDocument, keyName,
+					status = bsonAppendDouble(queryDocument, keyName,
 											  valueFloat);
 #endif
 				}
-				BsonAppendFinishArray(queryDocument, &childDocument);
+				bsonAppendFinishArray(queryDocument, &childDocument);
 				pfree(elem_values);
 				pfree(elem_nulls);
 			}
@@ -708,7 +442,7 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 				deconstruct_array(array, elmtype, elmlen, elmbyval, elmalign,
 								  &elem_values, &elem_nulls, &num_elems);
 
-				BsonAppendStartArray(queryDocument, keyName, &childDocument);
+				bsonAppendStartArray(queryDocument, keyName, &childDocument);
 				for (i = 0; i < num_elems; i++)
 				{
 					char	   *valueString;
@@ -722,10 +456,10 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 									  &typeVarLength);
 					valueString = OidOutputFunctionCall(outputFunctionId,
 														elem_values[i]);
-					status = BsonAppendUTF8(queryDocument, keyName,
+					status = bsonAppendUTF8(queryDocument, keyName,
 											valueString);
 				}
-				BsonAppendFinishArray(queryDocument, &childDocument);
+				bsonAppendFinishArray(queryDocument, &childDocument);
 				pfree(elem_values);
 				pfree(elem_nulls);
 			}
@@ -747,7 +481,7 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 				if (strcmp(outputString, "null") == 0)
 					outputString = "\"null\"";
 
-				o = JsonTokenerPrase(outputString);
+				o = jsonTokenerPrase(outputString);
 
 				if (o == NULL)
 				{
@@ -756,7 +490,7 @@ AppendMongoValue(BSON *queryDocument, const char *keyName, Datum value,
 					break;
 				}
 
-				status = JsonToBsonAppendElement(queryDocument, keyName, o);
+				status = jsonToBsonAppendElement(queryDocument, keyName, o);
 			}
 			break;
 		default:
@@ -813,7 +547,7 @@ mongo_get_column_list(PlannerInfo *root, RelOptInfo *foreignrel,
 			 * relation.
 			 */
 			attrs_used = bms_make_singleton(0 -
-										 FirstLowInvalidHeapAttributeNumber);
+											FirstLowInvalidHeapAttributeNumber);
 
 			wr_var_list = prepare_var_list_for_baserel(rte->relid, var->varno,
 													   attrs_used);
@@ -856,6 +590,7 @@ foreign_expr_walker(Node *node, foreign_glob_cxt *glob_cxt,
 	inner_cxt.collation = InvalidOid;
 	inner_cxt.state = FDW_COLLATE_NONE;
 	inner_cxt.has_scalar_array_op_expr = false;
+	inner_cxt.has_compare_op = false;
 
 	switch (nodeTag(node))
 	{
@@ -874,7 +609,7 @@ foreign_expr_walker(Node *node, foreign_glob_cxt *glob_cxt,
 				 * non-default collation.
 				 */
 				if (bms_is_member(var->varno, glob_cxt->relids) &&
-					var->varlevelsup == 0)
+					var->varlevelsup == 0 && var->varattno > 0)
 				{
 					/* Var belongs to foreign table */
 					collation = var->varcollid;
@@ -886,6 +621,15 @@ foreign_expr_walker(Node *node, foreign_glob_cxt *glob_cxt,
 					collation = var->varcollid;
 					if (var->varcollid != InvalidOid &&
 						var->varcollid != DEFAULT_COLLATION_OID)
+						return false;
+
+					/*
+					 * System columns should not be sent to the remote, since
+					 * we don't make any effort to ensure that local and
+					 * remote values match (tableoid, in particular, almost
+					 * certainly doesn't match).
+					 */
+					if (var->varattno < 0)
 						return false;
 
 					if (collation == InvalidOid ||
@@ -976,19 +720,16 @@ foreign_expr_walker(Node *node, foreign_glob_cxt *glob_cxt,
 				else if (opKind == OP_CONDITIONAL)
 				{
 					/* Does not support comparing operation within comparing operation */
-					if (glob_cxt->has_compare_op)
+					if (outer_cxt->has_compare_op)
 						return false;
-
-					glob_cxt->has_compare_op = true;
+					inner_cxt.has_compare_op = true;
 				}
 				else if (opKind == OP_MATH)
 				{
 					/* Does not support arithmetic operation within comparing operation */
-					if (glob_cxt->has_compare_op)
-					{
-						glob_cxt->has_compare_op = false;
+					if (outer_cxt->has_compare_op)
 						return false;
-					}
+					inner_cxt.has_compare_op = true;
 				}
 				else if (opKind == OP_JSON)
 				{
@@ -1119,6 +860,9 @@ foreign_expr_walker(Node *node, foreign_glob_cxt *glob_cxt,
 
 				if (outer_cxt->has_scalar_array_op_expr)
 					inner_cxt.has_scalar_array_op_expr = true;
+
+				if (outer_cxt->has_compare_op)
+					inner_cxt.has_compare_op = true;
 
 				/*
 				 * Recurse to component subexpressions.
@@ -1405,10 +1149,10 @@ mongo_is_foreign_expr(PlannerInfo *root, RelOptInfo *baserel, Expr *expression)
 		glob_cxt.relids = fpinfo->outerrel->relids;
 	else
 		glob_cxt.relids = baserel->relids;
-	glob_cxt.has_compare_op = false;
 
 	loc_cxt.collation = InvalidOid;
 	loc_cxt.state = FDW_COLLATE_NONE;
+	loc_cxt.has_compare_op = false;
 
 	if (!foreign_expr_walker((Node *) expression, &glob_cxt, &loc_cxt))
 		return false;
@@ -1502,7 +1246,7 @@ static void mongo_aggregate_pipeline_query(EState *estate, TupleDesc tupdesc,
 		return;
 
 	/* Build pipeline */
-	BsonAppendStartArray (queryDocument, "pipeline", &pipeline);
+	bsonAppendStartArray (queryDocument, "pipeline", &pipeline);
 
 	/* Scan rel must be join relation */
 	if (context->scan_reloptkind == RELOPT_JOINREL ||
@@ -1515,9 +1259,11 @@ static void mongo_aggregate_pipeline_query(EState *estate, TupleDesc tupdesc,
 		foreach(lc, plannerInfo->joininfo_list)
 		{
 			MongoPlanerJoinInfo *join_info = (MongoPlanerJoinInfo *)lfirst(lc);
+			context->is_join_expr = true;
 
 			mongo_append_lookup_doc(tupdesc, &pipeline, plannerInfo->tlist,
 									plannerInfo->scan_reloptkind, join_info, context);
+			context->is_join_expr = false;
 
 			/* Build $unwind stage */
 			if (context->innerel_name)
@@ -1525,15 +1271,22 @@ static void mongo_aggregate_pipeline_query(EState *estate, TupleDesc tupdesc,
 				BSON unwind, unwind_doc;
 				char *buf;
 
-				BsonAppendStartObject (&pipeline, "0", &unwind);
-				BsonAppendStartObject (&unwind, "$unwind", &unwind_doc);
+				bsonAppendStartObject (&pipeline, "0", &unwind);
+				bsonAppendStartObject (&unwind, "$unwind", &unwind_doc);
 				buf = psprintf("$%s", context->innerel_name);
 
-				BsonAppendUTF8 (&unwind_doc, "path", buf);
-				BsonAppendBool (&unwind_doc, "preserveNullAndEmptyArrays", true);
+				bsonAppendUTF8 (&unwind_doc, "path", buf);
+				if (plannerInfo->jointype == JOIN_INNER)
+				{
+					bsonAppendBool (&unwind_doc, "preserveNullAndEmptyArrays", false);
+				}
+				else
+				{
+					bsonAppendBool (&unwind_doc, "preserveNullAndEmptyArrays", true);
+				}
 
-				BsonAppendFinishObject (&unwind, &unwind_doc);
-				BsonAppendFinishObject (&pipeline, &unwind);
+				bsonAppendFinishObject (&unwind, &unwind_doc);
+				bsonAppendFinishObject (&pipeline, &unwind);
 
 				context->innerel_name_list = lappend(context->innerel_name_list, makeString(context->innerel_name));
 			}
@@ -1577,23 +1330,23 @@ static void mongo_aggregate_pipeline_query(EState *estate, TupleDesc tupdesc,
 		{
 			BSON offset_doc;
 
-			BsonAppendStartObject (&pipeline, "0", &offset_doc);
-			AppendConstantValue (&offset_doc, "$skip", (Const *)plannerInfo->limitOffset);
-			BsonAppendFinishObject (&pipeline, &offset_doc);
+			bsonAppendStartObject (&pipeline, "0", &offset_doc);
+			append_constant_value (&offset_doc, "$skip", (Const *)plannerInfo->limitOffset);
+			bsonAppendFinishObject (&pipeline, &offset_doc);
 		}
 		if (plannerInfo->limitCount)
 		{
 			BSON limit_doc;
 
-			BsonAppendStartObject (&pipeline, "0", &limit_doc);
-			AppendConstantValue (&limit_doc, "$limit", (Const *)plannerInfo->limitCount);
-			BsonAppendFinishObject (&pipeline, &limit_doc);
+			bsonAppendStartObject (&pipeline, "0", &limit_doc);
+			append_constant_value (&limit_doc, "$limit", (Const *)plannerInfo->limitCount);
+			bsonAppendFinishObject (&pipeline, &limit_doc);
 		}
 	}
 
-	BsonAppendFinishArray (queryDocument, &pipeline);
+	bsonAppendFinishArray (queryDocument, &pipeline);
 
-	if (!BsonFinish(queryDocument))
+	if (!bsonFinish(queryDocument))
 	{
 #ifdef META_DRIVER
 		ereport(ERROR,
@@ -1630,9 +1383,12 @@ static void mongo_append_lookup_doc(TupleDesc tupdesc,
 	Assert (scan_reloptkind == RELOPT_JOINREL ||
 			scan_reloptkind == RELOPT_OTHER_JOINREL);
 
+	if (join_info->join_is_sub_query)
+		fetch_executor_relation_offset(join_info, context);
+
 	if (join_info->outerrel_relid > 0)
 	{
-		rte_o = exec_rt_fetch(join_info->outerrel_relid, context->estate);
+		rte_o = exec_rt_fetch(join_info->outerrel_relid + context->rte_index_offset, context->estate);
 		context->rel_oid = rte_o->relid;
 		context->rtindex = join_info->outerrel_relid;
 
@@ -1647,9 +1403,10 @@ static void mongo_append_lookup_doc(TupleDesc tupdesc,
 
 	if (join_info->innerrel_relid > 0)
 	{
-		rte_i = exec_rt_fetch(join_info->innerrel_relid, context->estate);
+		rte_i = exec_rt_fetch(join_info->innerrel_relid + context->rte_index_offset, context->estate);
 		local_context.rel_oid = rte_i->relid;
 		local_context.rtindex = join_info->innerrel_relid;
+		context->inner_rtindex = join_info->innerrel_relid;
 
 		if (rte_o)
 			resetStringInfo(&buf);
@@ -1677,15 +1434,20 @@ static void mongo_append_lookup_doc(TupleDesc tupdesc,
 	local_context.innerel_name = NULL;
 	local_context.outerrel_name = NULL;
 	local_context.innerel_name_list = NIL;
+	local_context.is_join_expr = true;
+	local_context.inner_rtindex = 0;
+	local_context.inner_pipeline_ref_list = NIL;
+	local_context.is_in_grouping_clause = false;
+	local_context.rte_index_offset = 0;
 
-	BsonAppendStartObject (pipeline, "0", &lookup_stage);
-	BsonAppendStartObject (&lookup_stage, "$lookup", &join_doc);
+	bsonAppendStartObject (pipeline, "0", &lookup_stage);
+	bsonAppendStartObject (&lookup_stage, "$lookup", &join_doc);
 
 	/* From inner relation name: { from: "inner collection name" } */
-	BsonAppendUTF8(&join_doc, "from", buf.data);
+	bsonAppendUTF8(&join_doc, "from", buf.data);
 
 	/* Build "let" object document */
-	BsonAppendStartObject (&join_doc, "let", &let_doc);
+	bsonAppendStartObject (&join_doc, "let", &let_doc);
 	/*
 	 * Pull out Columns in joinclauses which are column that belongs to
 	 * outer relation. These columns are passed to pipeline stage.
@@ -1714,11 +1476,11 @@ static void mongo_append_lookup_doc(TupleDesc tupdesc,
 			 * Build reference column name for "let".
 			 * Using varattno as reference index.
 			 */
-			rte = exec_rt_fetch(var->varno, context->estate);
+			rte = exec_rt_fetch(var->varno + context->rte_index_offset, context->estate);
 			col_name = get_attname(rte->relid, var->varattno, false);
 			col_name = psprintf("$%s", col_name);
 			ref_var_outer = psprintf("ref%d", var->varattno);
-			BsonAppendUTF8(&let_doc, ref_var_outer, col_name);
+			bsonAppendUTF8(&let_doc, ref_var_outer, col_name);
 
 			agg_ref = palloc0(sizeof(mongo_aggref_ref));
 			agg_ref->expr = (Expr *)var;
@@ -1727,7 +1489,7 @@ static void mongo_append_lookup_doc(TupleDesc tupdesc,
 			local_context.agg_ref_list = lappend(local_context.agg_ref_list, agg_ref);
 		}
 	}
-	BsonAppendFinishObject (&join_doc, &let_doc);
+	bsonAppendFinishObject (&join_doc, &let_doc);
 
 	/* Rebuild plannerInfo for inner relation */
 	plannerInfo_inner = (MongoPlanerInfo *) palloc0(sizeof(MongoPlanerInfo));
@@ -1756,6 +1518,10 @@ static void mongo_append_lookup_doc(TupleDesc tupdesc,
 		}
 		i++;
 	}
+
+	/* Save inner reference list for main query to build inner grouping target */
+	context->inner_pipeline_ref_list = local_context.target_ref_list;
+
 	plannerInfo_inner->reloptkind = RELOPT_BASEREL;
 	plannerInfo_inner->scan_reloptkind = RELOPT_BASEREL;
 	plannerInfo_inner->rtindex = join_info->innerrel_relid;
@@ -1765,10 +1531,10 @@ static void mongo_append_lookup_doc(TupleDesc tupdesc,
 	mongo_aggregate_pipeline_query(context->estate, tupdesc, plannerInfo_inner, &local_context, &join_doc);
 
 	/* Build "as" */
-	BsonAppendUTF8(&join_doc, "as", buf.data);
+	bsonAppendUTF8(&join_doc, "as", buf.data);
 
-	BsonAppendFinishObject (&lookup_stage, &join_doc);
-	BsonAppendFinishObject (pipeline, &lookup_stage);
+	bsonAppendFinishObject (&lookup_stage, &join_doc);
+	bsonAppendFinishObject (pipeline, &lookup_stage);
 }
 
 /*
@@ -1787,10 +1553,10 @@ static void mongo_append_grouping_doc(TupleDesc tupdesc,
 	Assert (plannerInfo->reloptkind == RELOPT_UPPER_REL ||
 			plannerInfo->reloptkind == RELOPT_OTHER_UPPER_REL);
 
-	BsonAppendStartObject (pipeline, "0", &group_stage);
-	BsonAppendStartObject (&group_stage, "$group", &group_tlist);
+	bsonAppendStartObject (pipeline, "0", &group_stage);
+	bsonAppendStartObject (&group_stage, "$group", &group_tlist);
 
-	BsonAppendStartObject (&group_tlist, "_id", &col_group);
+	bsonAppendStartObject (&group_tlist, "_id", &col_group);
 	foreach(lc, plannerInfo->tlist)
 	{
 		TargetEntry *tle = lfirst_node(TargetEntry, lc);
@@ -1807,8 +1573,10 @@ static void mongo_append_grouping_doc(TupleDesc tupdesc,
 			ref_target = psprintf("ref%d", i);
 
 			context->bs_key = ref_target;
+			context->is_in_grouping_clause = true;
 			mongo_build_expr_doc(&col_group, expr, context);
 			context->bs_key = NULL;
+			context->is_in_grouping_clause = false;
 
 			target_ref->is_group_target = true;
 			target_ref->target_idx = i;
@@ -1821,7 +1589,7 @@ static void mongo_append_grouping_doc(TupleDesc tupdesc,
 
 		i++;
 	}
-	BsonAppendFinishObject (&group_tlist, &col_group);
+	bsonAppendFinishObject (&group_tlist, &col_group);
 
 	i = 0;
 	foreach(lc, plannerInfo->tlist)
@@ -1891,8 +1659,8 @@ static void mongo_append_grouping_doc(TupleDesc tupdesc,
 		i++;
 	}
 
-	BsonAppendFinishObject (&group_stage, &group_tlist);
-	BsonAppendFinishObject (pipeline, &group_stage);
+	bsonAppendFinishObject (&group_stage, &group_tlist);
+	bsonAppendFinishObject (pipeline, &group_stage);
 }
 
 /*
@@ -1906,6 +1674,7 @@ static void mongo_append_target_list_doc(TupleDesc tupdesc,
 	BSON	project_stage, tlist_doc;
 	ListCell	*lc;
 	bool	is_first = true;
+	List		*options;
 
 	plannerInfo->retrieved_attrs = NIL;
 
@@ -1938,8 +1707,8 @@ static void mongo_append_target_list_doc(TupleDesc tupdesc,
 
 				if (is_first)
 				{
-					BsonAppendStartObject (pipeline, "0", &project_stage);
-					BsonAppendStartObject (&project_stage, "$project", &tlist_doc);
+					bsonAppendStartObject (pipeline, "0", &project_stage);
+					bsonAppendStartObject (&project_stage, "$project", &tlist_doc);
 					is_first = false;
 				}
 
@@ -2000,7 +1769,21 @@ static void mongo_append_target_list_doc(TupleDesc tupdesc,
 					bms_is_member(i - FirstLowInvalidHeapAttributeNumber,
 								plannerInfo->attrs_used))
 				{
+					/* Use attribute name or column_name option. */
 					char *colname = get_attname(context->rel_oid, i, false);
+
+					options = GetForeignColumnOptions(context->rel_oid, i);
+
+					foreach(lc, options)
+					{
+						DefElem    *def = (DefElem *) lfirst(lc);
+
+						if (strcmp(def->defname, "column_name") == 0)
+						{
+							colname = defGetString(def);
+							break;
+						}
+					}
 
 					if (strcmp(colname, "__doc") == 0)
 					{
@@ -2011,13 +1794,13 @@ static void mongo_append_target_list_doc(TupleDesc tupdesc,
 
 					if (is_first)
 					{
-						BsonAppendStartObject (pipeline, "0", &project_stage);
-						BsonAppendStartObject (&project_stage, "$project", &tlist_doc);
+						bsonAppendStartObject (pipeline, "0", &project_stage);
+						bsonAppendStartObject (&project_stage, "$project", &tlist_doc);
 						is_first = false;
 					}
 
 					/* Append column name */
-					BsonAppendInt32 (&tlist_doc, colname, 1);
+					bsonAppendInt32 (&tlist_doc, colname, 1);
 
 					plannerInfo->retrieved_attrs = lappend_int(plannerInfo->retrieved_attrs, i);
 				}
@@ -2037,8 +1820,8 @@ static void mongo_append_target_list_doc(TupleDesc tupdesc,
 
 			if (is_first)
 			{
-				BsonAppendStartObject (pipeline, "0", &project_stage);
-				BsonAppendStartObject (&project_stage, "$project", &tlist_doc);
+				bsonAppendStartObject (pipeline, "0", &project_stage);
+				bsonAppendStartObject (&project_stage, "$project", &tlist_doc);
 				is_first = false;
 			}
 
@@ -2049,12 +1832,12 @@ static void mongo_append_target_list_doc(TupleDesc tupdesc,
 			{
 				char *ref_target_path = psprintf("$_id.%s", ref_target);
 
-				BsonAppendUTF8 (&tlist_doc, ref_target, ref_target_path);
+				bsonAppendUTF8 (&tlist_doc, ref_target, ref_target_path);
 				pfree(ref_target_path);
 			}
 			else
 			{
-				BsonAppendInt32 (&tlist_doc, ref_target, 1);
+				bsonAppendInt32 (&tlist_doc, ref_target, 1);
 			}
 
 			pfree(ref_target);
@@ -2070,11 +1853,11 @@ static void mongo_append_target_list_doc(TupleDesc tupdesc,
 		{
 			char *innerel_name = strVal(lfirst(lc));
 
-			BsonAppendInt32 (&tlist_doc, innerel_name, 1);
+			bsonAppendInt32 (&tlist_doc, innerel_name, 1);
 		}
 
-		BsonAppendFinishObject (&project_stage, &tlist_doc);
-		BsonAppendFinishObject (pipeline, &project_stage);
+		bsonAppendFinishObject (&project_stage, &tlist_doc);
+		bsonAppendFinishObject (pipeline, &project_stage);
 	}
 }
 
@@ -2104,8 +1887,8 @@ static void mongo_append_filter_doc(BSON *pipeline, MongoPlanerInfo *plannerInfo
 	conds_num = list_length(remote_exprs);
 	context->conds_num = conds_num;
 
-	BsonAppendStartObject (pipeline, "0", &match_stage);
-	BsonAppendStartObject (&match_stage, "$match", &filter_conds);
+	bsonAppendStartObject (pipeline, "0", &match_stage);
+	bsonAppendStartObject (&match_stage, "$match", &filter_conds);
 
 	/* Make sure any constants in the exprs are printed portably */
 	nestlevel = mongo_set_transmission_modes();
@@ -2126,11 +1909,11 @@ static void mongo_append_filter_doc(BSON *pipeline, MongoPlanerInfo *plannerInfo
 		{
 			if (context->need_aggexpr_syntax)
 			{
-				BsonAppendStartObject (&filter_conds, "$expr", &expr_stage);
-				BsonAppendStartArray (&expr_stage, "$and", &multi_cond_exprs);
+				bsonAppendStartObject (&filter_conds, "$expr", &expr_stage);
+				bsonAppendStartArray (&expr_stage, "$and", &multi_cond_exprs);
 			}
 			else
-				BsonAppendStartArray (&filter_conds, "$and", &multi_cond_exprs);
+				bsonAppendStartArray (&filter_conds, "$and", &multi_cond_exprs);
 			mongo_build_expr_doc(&multi_cond_exprs, expr, context);
 		}
 		else if (conds_num > 1)
@@ -2145,11 +1928,11 @@ static void mongo_append_filter_doc(BSON *pipeline, MongoPlanerInfo *plannerInfo
 	{
 		if (context->need_aggexpr_syntax)
 		{
-			BsonAppendFinishArray (&expr_stage, &multi_cond_exprs);
-			BsonAppendFinishObject (&filter_conds, &expr_stage);
+			bsonAppendFinishArray (&expr_stage, &multi_cond_exprs);
+			bsonAppendFinishObject (&filter_conds, &expr_stage);
 		}
 		else
-			BsonAppendFinishArray (&filter_conds, &multi_cond_exprs);
+			bsonAppendFinishArray (&filter_conds, &multi_cond_exprs);
 	}
 
 	mongo_reset_transmission_modes(nestlevel);
@@ -2157,8 +1940,8 @@ static void mongo_append_filter_doc(BSON *pipeline, MongoPlanerInfo *plannerInfo
 	if (context->need_aggexpr_syntax)
 		context->bs_key = NULL;
 
-	BsonAppendFinishObject (&match_stage, &filter_conds);
-	BsonAppendFinishObject (pipeline, &match_stage);
+	bsonAppendFinishObject (&match_stage, &filter_conds);
+	bsonAppendFinishObject (pipeline, &match_stage);
 }
 
 /*
@@ -2189,7 +1972,7 @@ static void mongo_build_boolexpr_doc(BSON *qdoc, BoolExpr *node, qdoc_expr_cxt *
 	{
 		if (context->bs_key == NULL)
 			elog(ERROR, "Could not add a boolean expression");
-		BsonAppendStartObject(qdoc, context->bs_key, &expr_stage);
+		bsonAppendStartObject(qdoc, context->bs_key, &expr_stage);
 		ptr_qdoc = &expr_stage;
 	}
 
@@ -2197,11 +1980,11 @@ static void mongo_build_boolexpr_doc(BSON *qdoc, BoolExpr *node, qdoc_expr_cxt *
 
 	if (context->conds_num > 1)
 	{
-		BsonAppendStartObject(ptr_qdoc, op, &op_doc);
-		BsonAppendStartArray (&op_doc, op, &boolexpr_doc);
+		bsonAppendStartObject(ptr_qdoc, op, &op_doc);
+		bsonAppendStartArray (&op_doc, op, &boolexpr_doc);
 	}
 	else
-		BsonAppendStartArray (ptr_qdoc, op, &boolexpr_doc);
+		bsonAppendStartArray (ptr_qdoc, op, &boolexpr_doc);
 
 	foreach(lc, node->args)
 	{
@@ -2212,16 +1995,16 @@ static void mongo_build_boolexpr_doc(BSON *qdoc, BoolExpr *node, qdoc_expr_cxt *
 
 	if (context->conds_num > 1)
 	{
-		BsonAppendFinishArray (&op_doc, &boolexpr_doc);
-		BsonAppendFinishObject(ptr_qdoc, &op_doc);
+		bsonAppendFinishArray (&op_doc, &boolexpr_doc);
+		bsonAppendFinishObject(ptr_qdoc, &op_doc);
 	}
 	else
-		BsonAppendFinishArray (ptr_qdoc, &boolexpr_doc);
+		bsonAppendFinishArray (ptr_qdoc, &boolexpr_doc);
 
 	context->count_boolexpr--;
 
 	if (context->need_aggexpr_syntax && context->count_boolexpr == 0)
-		BsonAppendFinishObject(qdoc, &expr_stage);
+		bsonAppendFinishObject(qdoc, &expr_stage);
 
 	context->conds_num++;
 }
@@ -2261,7 +2044,7 @@ static void mongo_build_opexpr_doc(BSON *qdoc, OpExpr *node, qdoc_expr_cxt *cont
 		mongo_deparseExpr((Expr *) node, &deparse_context);
 
 		if (context->bs_key)
-			BsonAppendUTF8(qdoc, context->bs_key, buf.data);
+			bsonAppendUTF8(qdoc, context->bs_key, buf.data);
 		else
 			elog(ERROR, "Could not add json nested object");
 
@@ -2318,34 +2101,47 @@ static void mongo_build_opexpr_doc(BSON *qdoc, OpExpr *node, qdoc_expr_cxt *cont
 		/* Build BSON for comparing operator: {field: { opname: value}} */
 		if (context->conds_num > 1)
 		{
-			BsonAppendStartObject (qdoc, leftopr_str, &opexpr_doc);
-			BsonAppendStartObject(&opexpr_doc, leftopr_str, &left_opr_doc);
+			bsonAppendStartObject (qdoc, leftopr_str, &opexpr_doc);
+			bsonAppendStartObject(&opexpr_doc, leftopr_str, &left_opr_doc);
 		}
 		else
-			BsonAppendStartObject(qdoc, leftopr_str, &left_opr_doc);
+			bsonAppendStartObject(qdoc, leftopr_str, &left_opr_doc);
 
 		opName = mongo_getSwitchedCmpOperatorName(opName, need_switch_operator);
-		AppendConstantValue(&left_opr_doc, opName, (Const *) right_opr);
+		append_constant_value(&left_opr_doc, opName, (Const *) right_opr);
 
 		if (context->conds_num > 1)
 		{
-			BsonAppendFinishObject(&opexpr_doc, &left_opr_doc);
-			BsonAppendFinishObject (qdoc, &opexpr_doc);
+			bsonAppendFinishObject(&opexpr_doc, &left_opr_doc);
+			bsonAppendFinishObject (qdoc, &opexpr_doc);
 		}
 		else
-			BsonAppendFinishObject(qdoc, &left_opr_doc);
+			bsonAppendFinishObject(qdoc, &left_opr_doc);
 	}
 	else
 	{
-		BSON opexpr_doc, ref_doc;
+		BSON opexpr_doc, ref_doc, and_obj, and_op;
 		ListCell *lc;
 
 		/* Build reference target in aggregation group likes: {"bson_key": { "$add":["$c1", 1] } } */
 		if (context->bs_key == NULL)
 			elog(ERROR, "Could not add a operator expression");
 
-		BsonAppendStartObject (qdoc, context->bs_key, &ref_doc);
-		BsonAppendStartArray (&ref_doc, opName, &opexpr_doc);
+		if (context->is_join_expr)
+		{
+			/* Add $and object to prepare to add null check clause */
+			bsonAppendStartObject(qdoc, context->bs_key, &and_obj);
+			bsonAppendStartArray (&and_obj, "$and", &and_op);
+
+			bsonAppendStartObject (&and_op, context->bs_key, &ref_doc);
+			bsonAppendStartArray (&ref_doc, opName, &opexpr_doc);
+
+		}
+		else
+		{
+			bsonAppendStartObject (qdoc, context->bs_key, &ref_doc);
+			bsonAppendStartArray (&ref_doc, opName, &opexpr_doc);
+		}
 
 		foreach(lc, node->args)
 		{
@@ -2384,7 +2180,7 @@ static void mongo_build_opexpr_doc(BSON *qdoc, OpExpr *node, qdoc_expr_cxt *cont
 				}
 
 				if (ref_key != NULL)
-					BsonAppendUTF8(&opexpr_doc, context->bs_key, ref_key);
+					bsonAppendUTF8(&opexpr_doc, context->bs_key, ref_key);
 				else
 					mongo_build_expr_doc(&opexpr_doc, expr, context);
 			}
@@ -2392,8 +2188,53 @@ static void mongo_build_opexpr_doc(BSON *qdoc, OpExpr *node, qdoc_expr_cxt *cont
 				mongo_build_expr_doc(&opexpr_doc, expr, context);
 		}
 
-		BsonAppendFinishArray (&ref_doc, &opexpr_doc);
-		BsonAppendFinishObject (qdoc, &ref_doc);
+		/* Finish append the op experesion */
+		if (context->is_join_expr)
+		{
+			bsonAppendFinishArray (&ref_doc, &opexpr_doc);
+			bsonAppendFinishObject (&and_op, &ref_doc);
+		}
+		else
+		{
+			bsonAppendFinishArray (&ref_doc, &opexpr_doc);
+			bsonAppendFinishObject (qdoc, &ref_doc);
+		}
+
+		/* Add null check for JOIN condition */
+		if (context->is_join_expr)
+		{
+			foreach(lc, node->args)
+			{
+				Expr *expr = (Expr *) lfirst(lc);
+				ListCell *aggcell;
+				char *ref_key = NULL;
+
+				foreach(aggcell, context->agg_ref_list)
+				{
+					mongo_aggref_ref *agg_ref = (mongo_aggref_ref *) lfirst(aggcell);
+
+					if (equal(expr, agg_ref->expr))
+					{
+						/* Build reference key like "$refx" */
+						if (IsA(expr, Var))
+						{
+							ref_key = psprintf("$%s", agg_ref->ref_target); /* reference from "let" in $lookup stage */
+						}
+
+						break;
+					}
+				}
+
+				/* Add null check for reference from outer relation */
+				if (ref_key != NULL)
+					mongo_add_null_check_ref(ref_key, &and_op);
+				else
+					mongo_add_null_check_var((Var *)expr , &and_op, context->rel_oid);
+			}
+
+			bsonAppendFinishArray (&and_obj, &and_op);
+			bsonAppendFinishObject (qdoc, &and_obj);
+		}
 	}
 }
 
@@ -2410,16 +2251,47 @@ mongo_build_column_doc(BSON *qdoc, Var *node, qdoc_expr_cxt *context)
 	else if (node->varattno == 0)
 		elog(ERROR, "Could not build BSON query document for whole-row reference");
 
-	if (context->rtindex != 0 && node->varno != context->rtindex)
-		return;
+	/* In grouping clause, it can contain column belong to inner relation */
+	if (!context->is_in_grouping_clause || !context->inner_pipeline_ref_list)
+	{
+		if (context->rtindex != 0 && node->varno != context->rtindex)
+			return;
+	}
 
-	colname = get_attname(context->rel_oid, node->varattno, false);
+	if (node->varno == context->inner_rtindex)
+	{
+		/* Grouping target belongs to inner relation */
+		ListCell	*lc;
+		int			inner_ref_index = -1;
 
-	/* Build colname object like "$column" */
-	colname = psprintf("$%s", colname);
+		/* Find the inner reference for this column */
+		foreach(lc, context->inner_pipeline_ref_list)
+		{
+			mongo_target_ref *target_ref = (mongo_target_ref *)lfirst(lc);
+
+			if (equal(node, target_ref->expr))
+			{
+				inner_ref_index = target_ref->target_idx;
+				break;
+			}
+		}
+
+		if (inner_ref_index == -1)
+			elog(ERROR, "Could not find the inner reference for grouping target\n");
+
+		/* Build colname object like "$innerrel_name.column_ref_inner" */
+		colname = psprintf("$%s.ref%d", context->innerel_name, inner_ref_index);
+	}
+	else
+	{
+		colname = get_attname(context->rel_oid, node->varattno, false);
+
+		/* Build colname object like "$column" */
+		colname = psprintf("$%s", colname);
+	}
 
 	if (context->bs_key)
-		BsonAppendUTF8(qdoc, context->bs_key, colname);
+		bsonAppendUTF8(qdoc, context->bs_key, colname);
 	else
 		elog(ERROR, "Could not add column object");
 }
@@ -2431,7 +2303,7 @@ static void
 mongo_build_const_doc(BSON *qdoc, Const *node, qdoc_expr_cxt *context)
 {
 	if (context->bs_key)
-		AppendConstantValue(qdoc, context->bs_key, node);
+		append_constant_value(qdoc, context->bs_key, node);
 	else
 		elog(ERROR, "Could not add constant value object");
 }
@@ -2464,7 +2336,7 @@ mongo_build_aggref_doc(BSON *qdoc, Aggref *node, qdoc_expr_cxt *context)
 	if (context->bs_key == NULL)
 		elog(ERROR, "Could not add a aggregate function");
 
-	BsonAppendStartObject (qdoc, context->bs_key, &aggref_doc);
+	bsonAppendStartObject (qdoc, context->bs_key, &aggref_doc);
 
 	/* aggstar can be set only in zero-argument aggregates */
 	if (node->aggstar)
@@ -2476,7 +2348,7 @@ mongo_build_aggref_doc(BSON *qdoc, Aggref *node, qdoc_expr_cxt *context)
 		 */
 		if (strcmp(proname, "count") == 0)
 		{
-			BsonAppendInt32(&aggref_doc, "$sum", 1);
+			bsonAppendInt32(&aggref_doc, "$sum", 1);
 		}
 	}
 	else
@@ -2503,7 +2375,7 @@ mongo_build_aggref_doc(BSON *qdoc, Aggref *node, qdoc_expr_cxt *context)
 			BSON args_doc;
 
 			/* Syntax: e.g. { $max: [ <expression1>, <expression2> ... ]  } */
-			BsonAppendStartArray (&aggref_doc, context->bs_key, &args_doc);
+			bsonAppendStartArray (&aggref_doc, context->bs_key, &args_doc);
 			foreach(arg, node->args)
 			{
 				tle = (TargetEntry *) lfirst(arg);
@@ -2514,12 +2386,12 @@ mongo_build_aggref_doc(BSON *qdoc, Aggref *node, qdoc_expr_cxt *context)
 
 				mongo_build_expr_doc(&args_doc, (Expr *)n, context);
 			}
-			BsonAppendFinishArray (&aggref_doc, &args_doc);
+			bsonAppendFinishArray (&aggref_doc, &args_doc);
 		}
 		context->bs_key = NULL;
 	}
 
-	BsonAppendFinishObject (qdoc, &aggref_doc);
+	bsonAppendFinishObject (qdoc, &aggref_doc);
 }
 
 /*
@@ -2583,33 +2455,33 @@ mongo_build_NullTest_doc(BSON *qdoc, NullTest *node, qdoc_expr_cxt *context)
 		else
 			input_expr_str = psprintf("$%s", input_expr_str);
 
-		BsonAppendStartObject(qdoc, "0", &nulltest_doc);
+		bsonAppendStartObject(qdoc, "0", &nulltest_doc);
 
-		BsonAppendStartArray(&nulltest_doc, opname, &op_doc);
-		BsonAppendUTF8(&op_doc, "0", input_expr_str);
-		BsonAppendNull(&op_doc, "1");
+		bsonAppendStartArray(&nulltest_doc, opname, &op_doc);
+		bsonAppendUTF8(&op_doc, "0", input_expr_str);
+		bsonAppendNull(&op_doc, "1");
 
-		BsonAppendFinishArray(&nulltest_doc, &op_doc);
+		bsonAppendFinishArray(&nulltest_doc, &op_doc);
 
-		BsonAppendFinishObject(qdoc, &nulltest_doc);
+		bsonAppendFinishObject(qdoc, &nulltest_doc);
 	}
 	else
 	{
 		if (context->conds_num > 1)
 		{
-			BsonAppendStartObject(qdoc, "0", &nulltest_doc);
+			bsonAppendStartObject(qdoc, "0", &nulltest_doc);
 
-			BsonAppendStartObject(&nulltest_doc, input_expr_str, &op_doc);
-			BsonAppendNull(&op_doc, opname);
-			BsonAppendFinishObject(&nulltest_doc, &op_doc);
+			bsonAppendStartObject(&nulltest_doc, input_expr_str, &op_doc);
+			bsonAppendNull(&op_doc, opname);
+			bsonAppendFinishObject(&nulltest_doc, &op_doc);
 
-			BsonAppendFinishObject(qdoc, &nulltest_doc);
+			bsonAppendFinishObject(qdoc, &nulltest_doc);
 		}
 		else
 		{
-			BsonAppendStartObject(qdoc, input_expr_str, &nulltest_doc);
-			BsonAppendNull(&nulltest_doc, opname);
-			BsonAppendFinishObject(qdoc, &nulltest_doc);
+			bsonAppendStartObject(qdoc, input_expr_str, &nulltest_doc);
+			bsonAppendNull(&nulltest_doc, opname);
+			bsonAppendFinishObject(qdoc, &nulltest_doc);
 		}
 	}
 }
@@ -2777,67 +2649,67 @@ mongo_build_scalar_array_op_expr(BSON *qdoc, ScalarArrayOpExpr *node, qdoc_expr_
 		else
 			input_expr_str = psprintf("$%s", input_expr_str);
 
-		BsonAppendStartObject(qdoc, "0", &element_doc);
+		bsonAppendStartObject(qdoc, "0", &element_doc);
 
-		BsonAppendStartArray(&element_doc, mongo_opname, &op_doc);
+		bsonAppendStartArray(&element_doc, mongo_opname, &op_doc);
 
-		BsonAppendUTF8(&op_doc, "0", input_expr_str);
+		bsonAppendUTF8(&op_doc, "0", input_expr_str);
 
-		BsonAppendStartArray(&op_doc, "1", &array_doc);
+		bsonAppendStartArray(&op_doc, "1", &array_doc);
 		foreach(lc, const_list)
 		{
 			Const *c = (Const *) lfirst(lc);
 
 			ref_key = psprintf("%d", i);
-			AppendConstantValue(&array_doc, ref_key, c);
+			append_constant_value(&array_doc, ref_key, c);
 			i++;
 		}
-		BsonAppendFinishArray(&op_doc, &array_doc);
+		bsonAppendFinishArray(&op_doc, &array_doc);
 
-		BsonAppendFinishArray(&element_doc, &op_doc);
+		bsonAppendFinishArray(&element_doc, &op_doc);
 
-		BsonAppendFinishObject(qdoc, &element_doc);
+		bsonAppendFinishObject(qdoc, &element_doc);
 	}
 	else
 	{
 		if (context->conds_num > 1)
 		{
 			BSON element_doc;
-			BsonAppendStartObject(qdoc, "0", &element_doc);
+			bsonAppendStartObject(qdoc, "0", &element_doc);
 
-			BsonAppendStartObject(&element_doc, input_expr_str, &scalarArrayOpExpr_doc);
+			bsonAppendStartObject(&element_doc, input_expr_str, &scalarArrayOpExpr_doc);
 
-			BsonAppendStartArray(&scalarArrayOpExpr_doc, mongo_opname, &op_doc);
+			bsonAppendStartArray(&scalarArrayOpExpr_doc, mongo_opname, &op_doc);
 			foreach(lc, const_list)
 			{
 				Const *c = (Const *) lfirst(lc);
 
 				ref_key = psprintf("%d", i);
-				AppendConstantValue(&op_doc, ref_key, c);
+				append_constant_value(&op_doc, ref_key, c);
 				i++;
 			}
-			BsonAppendFinishArray(&scalarArrayOpExpr_doc, &op_doc);
+			bsonAppendFinishArray(&scalarArrayOpExpr_doc, &op_doc);
 
-			BsonAppendFinishObject(&element_doc, &scalarArrayOpExpr_doc);
+			bsonAppendFinishObject(&element_doc, &scalarArrayOpExpr_doc);
 
-			BsonAppendFinishObject(qdoc, &element_doc);
+			bsonAppendFinishObject(qdoc, &element_doc);
 		}
 		else
 		{
-			BsonAppendStartObject(qdoc, input_expr_str, &scalarArrayOpExpr_doc);
+			bsonAppendStartObject(qdoc, input_expr_str, &scalarArrayOpExpr_doc);
 
-			BsonAppendStartArray(&scalarArrayOpExpr_doc, mongo_opname, &op_doc);
+			bsonAppendStartArray(&scalarArrayOpExpr_doc, mongo_opname, &op_doc);
 			foreach(lc, const_list)
 			{
 				Const *c = (Const *) lfirst(lc);
 
 				ref_key = psprintf("%d", i);
-				AppendConstantValue(&op_doc, ref_key, c);
+				append_constant_value(&op_doc, ref_key, c);
 				i++;
 			}
-			BsonAppendFinishArray(&scalarArrayOpExpr_doc, &op_doc);
+			bsonAppendFinishArray(&scalarArrayOpExpr_doc, &op_doc);
 
-			BsonAppendFinishObject(qdoc, &scalarArrayOpExpr_doc);
+			bsonAppendFinishObject(qdoc, &scalarArrayOpExpr_doc);
 		}
 	}
 }
@@ -2925,6 +2797,10 @@ List *mongo_serialize_plannerInfoList (MongoPlanerInfo *plannerInfo)
 		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->outerrel_relid));
 		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->innerrel_relid));
 		plannerInfoList = lappend(plannerInfoList, join_info->joinclauses);
+		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->outerrel_oid));
+		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->innerrel_oid));
+		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->join_is_sub_query));
+
 	}
 
 	return plannerInfoList;
@@ -3005,6 +2881,15 @@ MongoPlanerInfo *mongo_deserialize_plannerInfoList(List *plannerInfoList)
 		join_info->joinclauses = (List *) lfirst(lc);
 		lc = lnext(plannerInfoList, lc);
 
+		join_info->outerrel_oid = intVal(lfirst(lc));
+		lc = lnext(plannerInfoList, lc);
+
+		join_info->innerrel_oid = intVal(lfirst(lc));
+		lc = lnext(plannerInfoList, lc);
+
+		join_info->join_is_sub_query = intVal(lfirst(lc));
+		lc = lnext(plannerInfoList, lc);
+
 		plannerInfo->joininfo_list = lappend(plannerInfo->joininfo_list, join_info);
 	}
 
@@ -3047,7 +2932,7 @@ static MongoOperatorsSupport mongo_validateOperatorName(Oid opno,
 	{
 		/* Operator name		Abbreviation */
 		{"<",					"$lt"	}, 	/* Less than */
-		{">",					"$gt"	},		/* Greater than */
+		{">",					"$gt"	},	/* Greater than */
 		{"<=",					"$lte"	},	/* Less than or equal */
 		{">=",					"$gte"	},	/* Greater than or equal */
 		{"=",					"$eq"	},	/* Equal */
@@ -3062,7 +2947,10 @@ static MongoOperatorsSupport mongo_validateOperatorName(Oid opno,
 		{"-",					"$subtract"	},	/* Subtraction */
 		{"*",					"$multiply"	},	/* Multiplication */
 		{"/",					"$divide"	},	/* Division */
-		{"%",					"$mod"		},	/* Mudulo */
+		{"%",					"$mod"		},	/* Modulo */
+		{"^",					"$pow"		},	/* Power */
+		{"|/",					"$sqrt"		},	/* Square root */
+		{"@",					"$abs"		},	/* Absolute value */
 		{NULL,					NULL		},	/* NULL */
 	};
 	static deparse_op_abbr jsonOpNameMappings[] =
@@ -3474,7 +3362,7 @@ mongo_deparseRelation(StringInfo buf, Relation rel)
  */
 BSON* mongo_build_bson_query_document(EState *estate, TupleDesc tupdesc, MongoPlanerInfo *plannerInfo)
 {
-	BSON *queryDocument = BsonCreate();
+	BSON *queryDocument = bsonCreate();
 	qdoc_expr_cxt context;
 
 	/* Initialize context params */
@@ -3494,6 +3382,11 @@ BSON* mongo_build_bson_query_document(EState *estate, TupleDesc tupdesc, MongoPl
 	context.innerel_name = NULL;
 	context.outerrel_name = NULL;
 	context.innerel_name_list = NIL;
+	context.is_join_expr = false;
+	context.inner_pipeline_ref_list = NIL;
+	context.inner_rtindex = 0;
+	context.is_in_grouping_clause = false;
+	context.rte_index_offset = 0;
 
 	mongo_aggregate_pipeline_query(estate, tupdesc, plannerInfo, &context, queryDocument);
 
@@ -3545,4 +3438,41 @@ static void mongo_get_func_info_scalar_array (Oid const_array_type, Oid *constty
 					errhint("Constant value data type: %u", (uint32) const_array_type)));
 			break;
 	}
+}
+
+/*
+ * Adjust the rtindex when join clause is in subquery.
+ * The offset is caculated by difference between rtindex in planning phase and execution phase.
+ */
+static void fetch_executor_relation_offset(MongoPlanerJoinInfo *join_info, qdoc_expr_cxt *context)
+{
+	RangeTblEntry *rte = NULL;
+	int outer_rte_index_offset = 0;
+	int inner_rte_index_offset = 0;
+	int i;
+
+	for (i = 1; i<= context->estate->es_range_table_size; ++i)
+	{
+		rte = exec_rt_fetch(i, context->estate);
+		if (join_info->outerrel_oid == rte->relid)
+		{
+			outer_rte_index_offset = i - join_info->outerrel_relid;
+			break;
+		}
+	}
+
+	for (i = 1; i<= context->estate->es_range_table_size; ++i)
+	{
+		rte = exec_rt_fetch(i, context->estate);
+		if (join_info->innerrel_oid == rte->relid)
+		{
+			inner_rte_index_offset = i - join_info->innerrel_relid;
+			break;
+		}
+	}
+
+	if (outer_rte_index_offset != inner_rte_index_offset)
+		elog(ERROR,"outer_rte_index_offset must match with inner_rte_index_offset \n");
+
+	context->rte_index_offset = outer_rte_index_offset = inner_rte_index_offset;
 }

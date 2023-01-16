@@ -4,7 +4,7 @@
  * 		Foreign-data wrapper for remote MongoDB servers
  *
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
- * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
+ * Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
  * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
@@ -19,9 +19,7 @@
 #if PG_VERSION_NUM >= 90300
 #include "access/htup_details.h"
 #endif
-#if PG_VERSION_NUM < 120000
 #include "access/sysattr.h"
-#endif
 #if PG_VERSION_NUM >= 120000
 #include "access/table.h"
 #endif
@@ -61,137 +59,141 @@ PG_MODULE_MAGIC;
 
 /*
  * In PG 9.5.1 the number will be 90501,
- * our version is 5.2.10 so number will be 50210
+ * our version is 5.4.0 so number will be 50400
  */
-#define CODE_VERSION   50210
+#define CODE_VERSION   50400
 
 extern PGDLLEXPORT void _PG_init(void);
-const char *EscapeJsonString(const char *string);
-void BsonToJsonString(StringInfo output, BSON_ITERATOR iter, bool isArray);
-
 PG_FUNCTION_INFO_V1(mongo_fdw_handler);
 PG_FUNCTION_INFO_V1(mongo_fdw_version);
 
 /* FDW callback routines */
-static void MongoGetForeignRelSize(PlannerInfo *root,
+static void mongoGetForeignRelSize(PlannerInfo *root,
 								   RelOptInfo *baserel,
 								   Oid foreigntableid);
-static void MongoGetForeignPaths(PlannerInfo *root,
+static void mongoGetForeignPaths(PlannerInfo *root,
 								 RelOptInfo *baserel,
 								 Oid foreigntableid);
-static ForeignScan *MongoGetForeignPlan(PlannerInfo *root,
+static ForeignScan *mongoGetForeignPlan(PlannerInfo *root,
 										RelOptInfo *foreignrel,
 										Oid foreigntableid,
 										ForeignPath *best_path,
 										List *targetlist,
 										List *restrictionClauses,
 										Plan *outer_plan);
-static void MongoExplainForeignScan(ForeignScanState *node, ExplainState *es);
-static void MongoBeginForeignScan(ForeignScanState *node, int eflags);
-static TupleTableSlot *MongoIterateForeignScan(ForeignScanState *node);
-static void MongoEndForeignScan(ForeignScanState *node);
-static void MongoReScanForeignScan(ForeignScanState *node);
-static TupleTableSlot *MongoExecForeignUpdate(EState *estate,
+static void mongoExplainForeignScan(ForeignScanState *node, ExplainState *es);
+static void mongoBeginForeignScan(ForeignScanState *node, int eflags);
+static TupleTableSlot *mongoIterateForeignScan(ForeignScanState *node);
+static void mongoEndForeignScan(ForeignScanState *node);
+static void mongoReScanForeignScan(ForeignScanState *node);
+static TupleTableSlot *mongoExecForeignUpdate(EState *estate,
 											  ResultRelInfo *resultRelInfo,
 											  TupleTableSlot *slot,
 											  TupleTableSlot *planSlot);
-static TupleTableSlot *MongoExecForeignDelete(EState *estate,
+static TupleTableSlot *mongoExecForeignDelete(EState *estate,
 											  ResultRelInfo *resultRelInfo,
 											  TupleTableSlot *slot,
 											  TupleTableSlot *planSlot);
-static void MongoEndForeignModify(EState *estate,
+static void mongoEndForeignModify(EState *estate,
 								  ResultRelInfo *resultRelInfo);
 #if PG_VERSION_NUM >= 140000
-static void MongoAddForeignUpdateTargets(PlannerInfo *root,
+static void mongoAddForeignUpdateTargets(PlannerInfo *root,
 										 Index rtindex,
 										 RangeTblEntry *target_rte,
 										 Relation target_relation);
 #else
-static void MongoAddForeignUpdateTargets(Query *parsetree,
+static void mongoAddForeignUpdateTargets(Query *parsetree,
 										 RangeTblEntry *target_rte,
 										 Relation target_relation);
 #endif
-static void MongoBeginForeignModify(ModifyTableState *mtstate,
+static void mongoBeginForeignModify(ModifyTableState *mtstate,
 									ResultRelInfo *resultRelInfo,
 									List *fdw_private,
 									int subplan_index,
 									int eflags);
-static TupleTableSlot *MongoExecForeignInsert(EState *estate,
+static TupleTableSlot *mongoExecForeignInsert(EState *estate,
 											  ResultRelInfo *resultRelInfo,
 											  TupleTableSlot *slot,
 											  TupleTableSlot *planSlot);
-static List *MongoPlanForeignModify(PlannerInfo *root,
+static List *mongoPlanForeignModify(PlannerInfo *root,
 									ModifyTable *plan,
 									Index resultRelation,
 									int subplan_index);
-static void MongoExplainForeignModify(ModifyTableState *mtstate,
+static void mongoExplainForeignModify(ModifyTableState *mtstate,
 									  ResultRelInfo *rinfo,
 									  List *fdw_private,
 									  int subplan_index,
 									  ExplainState *es);
-static bool MongoAnalyzeForeignTable(Relation relation,
+static bool mongoAnalyzeForeignTable(Relation relation,
 									 AcquireSampleRowsFunc *func,
 									 BlockNumber *totalpages);
 #if PG_VERSION_NUM >= 110000
-static void MongoBeginForeignInsert(ModifyTableState *mtstate,
+static void mongoBeginForeignInsert(ModifyTableState *mtstate,
 									ResultRelInfo *resultRelInfo);
-static void MongoEndForeignInsert(EState *estate,
+static void mongoEndForeignInsert(EState *estate,
 								  ResultRelInfo *resultRelInfo);
 #endif
 
-static void MongoGetForeignJoinPaths(PlannerInfo *root,
-										RelOptInfo *joinrel,
-										RelOptInfo *outerrel,
-										RelOptInfo *innerrel,
-										JoinType jointype,
-										JoinPathExtraData *extra);
-
-static void MongoGetForeignUpperPaths(PlannerInfo *root,
+static void mongoGetForeignUpperPaths(PlannerInfo *root,
 									  UpperRelationKind stage,
 									  RelOptInfo *input_rel,
 									  RelOptInfo *output_rel,
 									  void *extra);
+static void mongoGetForeignJoinPaths(PlannerInfo *root, RelOptInfo *joinrel,
+									 RelOptInfo *outerrel,
+									 RelOptInfo *innerrel,
+									 JoinType jointype,
+									 JoinPathExtraData *extra);
 
 /*
  * Helper functions
  */
-static double ForeignTableDocumentCount(Oid foreignTableId);
-static void FillTupleSlot(const BSON *bsonDocument,
-						  const char *bsonDocumentKey,
-						  MongoPlanerInfo *plannerInfo,
-						  TupleDesc tupleDescriptor,
-						  Datum *columnValues,
-						  bool *columnNulls,
-						  bool is_agg);
-static void FillTupleSlotAgg(const BSON *bsonDocument,
+static double foreign_table_document_count(Oid foreignTableId);
+static void fill_tuple_slot(const BSON *bsonDocument,
+							const char *bsonDocumentKey,
+							MongoPlanerInfo *plannerInfo,
+							TupleDesc tupleDescriptor,
+							Datum *columnValues,
+							bool *columnNulls,
+							bool is_agg);
+static void fill_tuple_slot_agg(const BSON *bsonDocument,
 							 const char *bsonDocumentKey,
 							 MongoPlanerInfo *plannerInfo,
 							 TupleDesc tupleDescriptor,
 							 Datum *columnValues,
 							 bool *columnNulls);
-static void FillTupleSlotAttr(const BSON *bsonDocument,
+static void fill_tuple_slot_attr(const BSON *bsonDocument,
 							  const char *bsonDocumentKey,
 							  MongoPlanerInfo *plannerInfo,
 							  TupleDesc tupleDescriptor,
 							  Datum *columnValues,
 							  bool *columnNulls);
-static bool ColumnTypesCompatible(BSON_TYPE bsonType, Oid columnTypeId);
-static Datum ColumnValueArray(BSON_ITERATOR *bsonIterator, Oid valueTypeId);
-static Datum ColumnValue(BSON_ITERATOR *bsonIterator,
-						 Oid columnTypeId,
-						 int32 columnTypeMod);
-static void MongoFreeScanState(MongoFdwScanState *fsstate);
-static void MongoFreeModifyState(MongoFdwModifyState *fmstate);
-static int MongoAcquireSampleRows(Relation relation,
-								  int errorLevel,
-								  HeapTuple *sampleRows,
-								  int targetRowCount,
-								  double *totalRowCount,
-								  double *totalDeadRowCount);
+static bool column_types_compatible(BSON_TYPE bsonType, Oid columnTypeId);
+static Datum column_value_array(BSON_ITERATOR *bsonIterator, Oid valueTypeId);
+static Datum column_value(BSON_ITERATOR *bsonIterator,
+						  Oid columnTypeId,
+						  int32 columnTypeMod);
+static void mongo_free_scan_state(MongoFdwScanState *fmstate);
+static void mongo_free_modify_state(MongoFdwModifyState *fmstate);
+static int mongo_acquire_sample_rows(Relation relation,
+									 int errorLevel,
+									 HeapTuple *sampleRows,
+									 int targetRowCount,
+									 double *totalRowCount,
+									 double *totalDeadRowCount);
 static void mongo_fdw_exit(int code, Datum arg);
 static void mongo_BsonToStringValue(StringInfo output, BSON_ITERATOR *bsIterator, BSON_TYPE bsonType);
 static void mongo_get_join_planner_info(RelOptInfo *scanrel, MongoPlanerInfo *plannerInfo);
 static void mongo_get_limit_info(PlannerInfo *root, MongoPlanerInfo *plannerInfo);
+static bool mongo_foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel,
+								  JoinType jointype, RelOptInfo *outerrel,
+								  RelOptInfo *innerrel,
+								  JoinPathExtraData *extra);
+static const char *escape_json_string(const char *string);
+#ifndef META_DRIVER
+static void bson_to_json_string(StringInfo output, BSON_ITERATOR iter,
+								bool isArray);
+#endif
 
 /* The null action object used for pure validation */
 #if PG_VERSION_NUM < 130000
@@ -217,9 +219,9 @@ JsonSemAction nullSemAction =
  */
 enum FdwPathPrivateIndex
 {
-	/* has-final-sort flag (as an integer Value node) */
+	/* has-final-sort flag (as a Boolean node) */
 	FdwPathPrivateHasFinalSort,
-	/* has-limit flag (as an integer Value node) */
+	/* has-limit flag (as a Boolean node) */
 	FdwPathPrivateHasLimit
 };
 
@@ -249,41 +251,41 @@ mongo_fdw_handler(PG_FUNCTION_ARGS)
 	FdwRoutine *fdwRoutine = makeNode(FdwRoutine);
 
 	/* Functions for scanning foreign tables */
-	fdwRoutine->GetForeignRelSize = MongoGetForeignRelSize;
-	fdwRoutine->GetForeignPaths = MongoGetForeignPaths;
-	fdwRoutine->GetForeignPlan = MongoGetForeignPlan;
-	fdwRoutine->BeginForeignScan = MongoBeginForeignScan;
-	fdwRoutine->IterateForeignScan = MongoIterateForeignScan;
-	fdwRoutine->ReScanForeignScan = MongoReScanForeignScan;
-	fdwRoutine->EndForeignScan = MongoEndForeignScan;
+	fdwRoutine->GetForeignRelSize = mongoGetForeignRelSize;
+	fdwRoutine->GetForeignPaths = mongoGetForeignPaths;
+	fdwRoutine->GetForeignPlan = mongoGetForeignPlan;
+	fdwRoutine->BeginForeignScan = mongoBeginForeignScan;
+	fdwRoutine->IterateForeignScan = mongoIterateForeignScan;
+	fdwRoutine->ReScanForeignScan = mongoReScanForeignScan;
+	fdwRoutine->EndForeignScan = mongoEndForeignScan;
 
 	/* Support for insert/update/delete */
-	fdwRoutine->AddForeignUpdateTargets = MongoAddForeignUpdateTargets;
-	fdwRoutine->PlanForeignModify = MongoPlanForeignModify;
-	fdwRoutine->BeginForeignModify = MongoBeginForeignModify;
-	fdwRoutine->ExecForeignInsert = MongoExecForeignInsert;
-	fdwRoutine->ExecForeignUpdate = MongoExecForeignUpdate;
-	fdwRoutine->ExecForeignDelete = MongoExecForeignDelete;
-	fdwRoutine->EndForeignModify = MongoEndForeignModify;
+	fdwRoutine->AddForeignUpdateTargets = mongoAddForeignUpdateTargets;
+	fdwRoutine->PlanForeignModify = mongoPlanForeignModify;
+	fdwRoutine->BeginForeignModify = mongoBeginForeignModify;
+	fdwRoutine->ExecForeignInsert = mongoExecForeignInsert;
+	fdwRoutine->ExecForeignUpdate = mongoExecForeignUpdate;
+	fdwRoutine->ExecForeignDelete = mongoExecForeignDelete;
+	fdwRoutine->EndForeignModify = mongoEndForeignModify;
 
 	/* Support for EXPLAIN */
-	fdwRoutine->ExplainForeignScan = MongoExplainForeignScan;
-	fdwRoutine->ExplainForeignModify = MongoExplainForeignModify;
+	fdwRoutine->ExplainForeignScan = mongoExplainForeignScan;
+	fdwRoutine->ExplainForeignModify = mongoExplainForeignModify;
 
 	/* Support for ANALYZE */
-	fdwRoutine->AnalyzeForeignTable = MongoAnalyzeForeignTable;
+	fdwRoutine->AnalyzeForeignTable = mongoAnalyzeForeignTable;
 
 #if PG_VERSION_NUM >= 110000
 	/* Partition routing and/or COPY from */
-	fdwRoutine->BeginForeignInsert = MongoBeginForeignInsert;
-	fdwRoutine->EndForeignInsert = MongoEndForeignInsert;
+	fdwRoutine->BeginForeignInsert = mongoBeginForeignInsert;
+	fdwRoutine->EndForeignInsert = mongoEndForeignInsert;
 #endif
 
-	/* Support functions for join push-down */
-	fdwRoutine->GetForeignJoinPaths = MongoGetForeignJoinPaths;
-
 	/* Support functions for upper relation push-down */
-	fdwRoutine->GetForeignUpperPaths = MongoGetForeignUpperPaths;
+	fdwRoutine->GetForeignUpperPaths = mongoGetForeignUpperPaths;
+
+	/* Support function for join push-down */
+	fdwRoutine->GetForeignJoinPaths = mongoGetForeignJoinPaths;
 
 	PG_RETURN_POINTER(fdwRoutine);
 }
@@ -307,12 +309,12 @@ mongo_fdw_exit(int code, Datum arg)
  * 		Obtains relation size estimates for mongo foreign table.
  */
 static void
-MongoGetForeignRelSize(PlannerInfo *root,
+mongoGetForeignRelSize(PlannerInfo *root,
 					   RelOptInfo *baserel,
 					   Oid foreigntableid)
 {
-	double		documentCount = ForeignTableDocumentCount(foreigntableid);
 	MongoFdwRelationInfo *fpinfo;
+	MongoFdwOptions *options;
 	ListCell   *lc;
 
 	/*
@@ -327,6 +329,7 @@ MongoGetForeignRelSize(PlannerInfo *root,
 
 	/* Set the relation index. */
 	fpinfo->relation_index = baserel->relid;
+	fpinfo->baserel_oid = foreigntableid;
 
 	/*
 	 * Identify which baserestrictinfo clauses can be sent to the remote
@@ -346,28 +349,44 @@ MongoGetForeignRelSize(PlannerInfo *root,
 			fpinfo->local_conds = lappend(fpinfo->local_conds, ri);
 	}
 
-	if (documentCount > 0.0)
-	{
-		double		rowSelectivity;
 
-		/*
-		 * We estimate the number of rows returned after restriction
-		 * qualifiers are applied.  This will be more accurate if analyze is
-		 * run on this relation.
-		 */
-		rowSelectivity = clauselist_selectivity(root,
-												baserel->baserestrictinfo,
-												0, JOIN_INNER, NULL);
-		baserel->rows = clamp_row_est(documentCount * rowSelectivity);
+	/* Fetch options */
+	options = mongo_get_options(foreigntableid);
+
+	/*
+	 * Retrieve exact document count for remote collection if asked, otherwise,
+	 * use default estimate in planning.
+	 */
+	if (options->use_remote_estimate)
+	{
+		double		documentCount = foreign_table_document_count(foreigntableid);
+
+		if (documentCount > 0.0)
+		{
+			double		rowSelectivity;
+
+			/*
+			 * We estimate the number of rows returned after restriction
+			 * qualifiers are applied.  This will be more accurate if analyze
+			 * is run on this relation.
+			 */
+			rowSelectivity = clauselist_selectivity(root,
+													baserel->baserestrictinfo,
+													0, JOIN_INNER, NULL);
+			baserel->rows = clamp_row_est(documentCount * rowSelectivity);
+		}
+		else
+			ereport(DEBUG1,
+					(errmsg("could not retrieve document count for collection"),
+					 errhint("Falling back to default estimates in planning.")));
 	}
-	else
-		ereport(DEBUG1,
-				(errmsg("could not retrieve document count for collection"),
-				 errhint("Falling back to default estimates in planning.")));
+
+	/* Also store the options in fpinfo for further use */
+	fpinfo->options = options;
 }
 
 /*
- * MongoGetForeignPaths
+ * mongoGetForeignPaths
  *		Creates the only scan path used to execute the query.
  *
  * Note that MongoDB may decide to use an underlying index for this scan, but
@@ -375,70 +394,82 @@ MongoGetForeignRelSize(PlannerInfo *root,
  * single table scan path.
  */
 static void
-MongoGetForeignPaths(PlannerInfo *root,
+mongoGetForeignPaths(PlannerInfo *root,
 					 RelOptInfo *baserel,
 					 Oid foreigntableid)
 {
-	double		tupleFilterCost = baserel->baserestrictcost.per_tuple;
-	double		inputRowCount;
-	double		documentSelectivity;
-	double		foreignTableSize;
-	int32		documentWidth;
-	BlockNumber pageCount;
-	double		totalDiskAccessCost;
-	double		cpuCostPerDoc;
-	double		cpuCostPerRow;
-	double		totalCpuCost;
-	double		connectionCost;
-	double 		documentCount;
-	List	   *opExpressionList;
+	Path	   *foreignPath;
+	MongoFdwOptions *options;
 	Cost		startupCost = 0.0;
 	Cost		totalCost = 0.0;
-	Path	   *foreignPath;
-	MongoFdwRelationInfo *fpinfo = (MongoFdwRelationInfo *) baserel->fdw_private;
 
-	documentCount = ForeignTableDocumentCount(foreigntableid);
+	/* Fetch options */
+	options = mongo_get_options(foreigntableid);
 
-	if (documentCount > 0.0)
+	/*
+	 * Retrieve exact document count for remote collection if asked, otherwise,
+	 * use default estimate in planning.
+	 */
+	if (options->use_remote_estimate)
 	{
-		/*
-		 * We estimate the number of rows returned after restriction
-		 * qualifiers are applied by MongoDB.
-		 */
-		opExpressionList = fpinfo->remote_conds;
-		documentSelectivity = clauselist_selectivity(root, opExpressionList,
-													 0, JOIN_INNER, NULL);
-		inputRowCount = clamp_row_est(documentCount * documentSelectivity);
+		double 		documentCount = foreign_table_document_count(foreigntableid);
 
-		/*
-		 * We estimate disk costs assuming a sequential scan over the data.
-		 * This is an inaccurate assumption as Mongo scatters the data over
-		 * disk pages, and may rely on an index to retrieve the data.  Still,
-		 * this should at least give us a relative cost.
-		 */
-		documentWidth = get_relation_data_width(foreigntableid,
-												baserel->attr_widths);
-		foreignTableSize = documentCount * documentWidth;
+		if (documentCount > 0.0)
+		{
+			MongoFdwRelationInfo *fpinfo = (MongoFdwRelationInfo *) baserel->fdw_private;
+			double		tupleFilterCost = baserel->baserestrictcost.per_tuple;
+			double		inputRowCount;
+			double		documentSelectivity;
+			double		foreignTableSize;
+			int32		documentWidth;
+			BlockNumber pageCount;
+			double		totalDiskAccessCost;
+			double		cpuCostPerDoc;
+			double		cpuCostPerRow;
+			double		totalCpuCost;
+			double		connectionCost;
+			List	   *opExpressionList;
 
-		pageCount = (BlockNumber) rint(foreignTableSize / BLCKSZ);
-		totalDiskAccessCost = seq_page_cost * pageCount;
+			/*
+			 * We estimate the number of rows returned after restriction
+			 * qualifiers are applied by MongoDB.
+			 */
+			opExpressionList = fpinfo->remote_conds;
+			documentSelectivity = clauselist_selectivity(root,
+														 opExpressionList, 0,
+														 JOIN_INNER, NULL);
+			inputRowCount = clamp_row_est(documentCount * documentSelectivity);
 
-		/*
-		 * The cost of processing a document returned by Mongo (input row) is
-		 * 5x the cost of processing a regular row.
-		 */
-		cpuCostPerDoc = cpu_tuple_cost;
-		cpuCostPerRow = (cpu_tuple_cost * MONGO_TUPLE_COST_MULTIPLIER) + tupleFilterCost;
-		totalCpuCost = (cpuCostPerDoc * documentCount) +(cpuCostPerRow * inputRowCount);
+			/*
+			 * We estimate disk costs assuming a sequential scan over the data.
+			 * This is an inaccurate assumption as Mongo scatters the data over
+			 * disk pages, and may rely on an index to retrieve the data.
+			 * Still, this should at least give us a relative cost.
+			 */
+			documentWidth = get_relation_data_width(foreigntableid,
+													baserel->attr_widths);
+			foreignTableSize = documentCount * documentWidth;
 
-		connectionCost = MONGO_CONNECTION_COST_MULTIPLIER * seq_page_cost;
-		startupCost = baserel->baserestrictcost.startup + connectionCost;
-		totalCost = startupCost + totalDiskAccessCost + totalCpuCost;
+			pageCount = (BlockNumber) rint(foreignTableSize / BLCKSZ);
+			totalDiskAccessCost = seq_page_cost * pageCount;
+
+			/*
+			 * The cost of processing a document returned by Mongo (input row)
+			 * is 5x the cost of processing a regular row.
+			 */
+			cpuCostPerDoc = cpu_tuple_cost;
+			cpuCostPerRow = (cpu_tuple_cost * MONGO_TUPLE_COST_MULTIPLIER) + tupleFilterCost;
+			totalCpuCost = (cpuCostPerDoc * documentCount) +(cpuCostPerRow * inputRowCount);
+
+			connectionCost = MONGO_CONNECTION_COST_MULTIPLIER * seq_page_cost;
+			startupCost = baserel->baserestrictcost.startup + connectionCost;
+			totalCost = startupCost + totalDiskAccessCost + totalCpuCost;
+		}
+		else
+			ereport(DEBUG1,
+					(errmsg("could not retrieve document count for collection"),
+					 errhint("Falling back to default estimates in planning.")));
 	}
-	else
-		ereport(DEBUG1,
-				(errmsg("could not retrieve document count for collection"),
-				 errhint("Falling back to default estimates in planning.")));
 
 	/* Create a foreign path node */
 	foreignPath = (Path *) create_foreignscan_path(root, baserel,
@@ -460,14 +491,14 @@ MongoGetForeignPaths(PlannerInfo *root,
 }
 
 /*
- * MongoGetForeignPlan
+ * mongoGetForeignPlan
  *		Creates a foreign scan plan node for scanning the MongoDB collection.
  *
  * Note that MongoDB may decide to use an underlying index for this
  * scan, but that decision isn't deterministic or visible to us.
  */
 static ForeignScan *
-MongoGetForeignPlan(PlannerInfo *root,
+mongoGetForeignPlan(PlannerInfo *root,
 					RelOptInfo *foreignrel,
 					Oid foreigntableid,
 					ForeignPath *best_path,
@@ -476,7 +507,7 @@ MongoGetForeignPlan(PlannerInfo *root,
 					Plan *outer_plan)
 {
 	MongoFdwRelationInfo *fpinfo = (MongoFdwRelationInfo *) foreignrel->fdw_private;
-	Index		scanRangeTableIndex;
+	Index		scan_relid;
 	ForeignScan *foreignScan;
 	List	   *scan_var_list;
 	List	   *fdw_scan_tlist = NIL;
@@ -494,12 +525,17 @@ MongoGetForeignPlan(PlannerInfo *root,
 	tlist_has_jsonb_arrow_op = mongo_tlist_has_jsonb_arrow_op(root, foreignrel, targetList);
 
 	/*
-	 * Get FDW private data created by MongoGetForeignUpperPaths(), if any.
+	 * Get FDW private data created by mongoGetForeignUpperPaths(), if any.
 	 */
 	if (best_path->fdw_private)
 	{
+#if PG_VERSION_NUM >= 150000
+		has_limit = boolVal(list_nth(best_path->fdw_private,
+									 FdwPathPrivateHasLimit));
+#else		
 		has_limit = intVal(list_nth(best_path->fdw_private,
 									FdwPathPrivateHasLimit));
+#endif
 	}
 
 #if PG_VERSION_NUM >= 90600
@@ -521,6 +557,9 @@ MongoGetForeignPlan(PlannerInfo *root,
 
 		if (var->varattno >= 0)
 			continue;
+		else if	(var->varattno == SelfItemPointerAttributeNumber ||
+				 var->varattno == TableOidAttributeNumber)
+			continue;
 
 #if PG_VERSION_NUM >= 120000
 		attr = SystemAttributeDefinition(var->varattno);
@@ -536,9 +575,9 @@ MongoGetForeignPlan(PlannerInfo *root,
 	if (IS_SIMPLE_REL(foreignrel))
 	{
 		/*
-		 * For base relations, set scanRangeTableIndex as the relid of the relation.
+		 * For base relations, set scan_relid as the relid of the relation.
 		 */
-		scanRangeTableIndex = foreignrel->relid;
+		scan_relid = foreignrel->relid;
 
 		/*
 		* Separate the restrictionClauses into those that can be executed remotely
@@ -607,9 +646,9 @@ MongoGetForeignPlan(PlannerInfo *root,
 	else
 	{
 		/*
-		 * Join relation or upper relation - set scanRangeTableIndex to 0.
+		 * Join relation or upper relation - set scan_relid to 0.
 		 */
-		scanRangeTableIndex = 0;
+		scan_relid = 0;
 
 		/*
 		 * For a join rel, baserestrictinfo is NIL and we are not considering
@@ -628,7 +667,7 @@ MongoGetForeignPlan(PlannerInfo *root,
 		/*
 		 * We leave fdw_recheck_quals empty in this case, since we never need
 		 * to apply EPQ recheck clauses.  In the case of a joinrel, EPQ
-		 * recheck is handled elsewhere --- see MongoGetForeignJoinPaths().
+		 * recheck is handled elsewhere --- see mongoGetForeignJoinPaths().
 		 * If we're planning an upperrel (ie, remote grouping or aggregation)
 		 * then there's no EPQ to do because SELECT FOR UPDATE wouldn't be
 		 * allowed, and indeed we *can't* put the remote clauses into
@@ -749,7 +788,7 @@ MongoGetForeignPlan(PlannerInfo *root,
 
 	/* Create the foreign scan node */
 	foreignScan = make_foreignscan(targetList, local_exprs,
-								   scanRangeTableIndex,
+								   scan_relid,
 								   NIL, /* No expressions to evaluate */
 								   plannerInfoList
 #if PG_VERSION_NUM >= 90500
@@ -763,15 +802,15 @@ MongoGetForeignPlan(PlannerInfo *root,
 }
 
 /*
- * MongoExplainForeignScan
+ * mongoExplainForeignScan
  *		Produces extra output for the Explain command.
  */
 static void
-MongoExplainForeignScan(ForeignScanState *node, ExplainState *es)
+mongoExplainForeignScan(ForeignScanState *node, ExplainState *es)
 {
 	MongoFdwScanState *fsstate = (MongoFdwScanState *) node->fdw_state;
 	ForeignScan *fsplan = (ForeignScan *) node->ss.ps.plan;
-	EState	   *estate = node->ss.ps.state;
+	EState		*estate = node->ss.ps.state;
 	MongoFdwOptions *options;
 	StringInfo	namespaceName;
 	RangeTblEntry *rte;
@@ -785,14 +824,30 @@ MongoExplainForeignScan(ForeignScanState *node, ExplainState *es)
 
 	options = mongo_get_options(rte->relid);
 
-	/* Construct fully qualified collection name */
-	namespaceName = makeStringInfo();
-	appendStringInfo(namespaceName, "%s.%s", options->svr_database,
-					 options->collectionName);
+	if (fsstate->plannerInfo->joininfo_list != NIL)
+	{
+		StringInfo join_relation_name = makeStringInfo();
+		MongoPlanerJoinInfo *join_info;
+
+		join_info = (MongoPlanerJoinInfo *)lfirst(list_head(fsstate->plannerInfo->joininfo_list));
+
+		appendStringInfo(join_relation_name, "(%s.%s) %s JOIN (%s.%s)",
+							options->svr_database,
+							join_info->outerrel_name,
+							mongo_get_jointype_name(fsstate->plannerInfo->jointype),
+							options->svr_database,
+							join_info->innerel_name);
+
+		ExplainPropertyText("Foreign Namespace", join_relation_name->data, es);
+	} else {
+		/* Construct fully qualified collection name */
+		namespaceName = makeStringInfo();
+		appendStringInfo(namespaceName, "%s.%s", options->svr_database,
+						options->collectionName);
+		ExplainPropertyText("Foreign Namespace", namespaceName->data, es);
+	}
 
 	mongo_free_options(options);
-
-	ExplainPropertyText("Foreign Namespace", namespaceName->data, es);
 
 	if (es->verbose)
 	{
@@ -805,7 +860,7 @@ MongoExplainForeignScan(ForeignScanState *node, ExplainState *es)
 }
 
 static void
-MongoExplainForeignModify(ModifyTableState *mtstate,
+mongoExplainForeignModify(ModifyTableState *mtstate,
 						  ResultRelInfo *rinfo,
 						  List *fdw_private,
 						  int subplan_index,
@@ -828,7 +883,7 @@ MongoExplainForeignModify(ModifyTableState *mtstate,
 }
 
 /*
- * MongoBeginForeignScan
+ * mongoBeginForeignScan
  *		Connects to the MongoDB server, and opens a cursor that uses the
  *		database name, collection name, and the remote query to send to the
  *		server.
@@ -837,7 +892,7 @@ MongoExplainForeignModify(ModifyTableState *mtstate,
  * column names to column index and type information.
  */
 static void
-MongoBeginForeignScan(ForeignScanState *node, int eflags)
+mongoBeginForeignScan(ForeignScanState *node, int eflags)
 {
 	MongoFdwOptions *options;
 	MongoFdwScanState *fsstate;
@@ -900,7 +955,7 @@ MongoBeginForeignScan(ForeignScanState *node, int eflags)
 }
 
 /*
- * MongoIterateForeignScan
+ * mongoIterateForeignScan
  *		Opens a Mongo cursor that uses the database name, collection name, and
  *		the remote query to send to the server.
  *
@@ -908,7 +963,7 @@ MongoBeginForeignScan(ForeignScanState *node, int eflags)
  *	and stores the converted tuple into the ScanTupleSlot as a virtual tuple.
  */
 static TupleTableSlot *
-MongoIterateForeignScan(ForeignScanState *node)
+mongoIterateForeignScan(ForeignScanState *node)
 {
 	MongoFdwScanState *fsstate = (MongoFdwScanState *) node->fdw_state;
 	TupleTableSlot *tupleSlot = node->ss.ss_ScanTupleSlot;
@@ -942,7 +997,7 @@ MongoIterateForeignScan(ForeignScanState *node)
 		collection_name = (most_outerrel_name) ?
 							most_outerrel_name :
 							fsstate->options->collectionName;
-		mongoCursor = MongoCursorCreate(fsstate->mongoConnection,
+		mongoCursor = mongoCursorCreate(fsstate->mongoConnection,
 										fsstate->options->svr_database,
 										collection_name,
 										fsstate->queryDocument, true);
@@ -952,7 +1007,7 @@ MongoIterateForeignScan(ForeignScanState *node)
 	}
 
 	/*
-	 * We execute the protocol to load a virtual tuple into a slot. We first
+	 * We execute the protocol to load a virtual tuple into a slot.  We first
 	 * call ExecClearTuple, then fill in values / isnull arrays, and last call
 	 * ExecStoreVirtualTuple.  If we are done fetching documents from Mongo,
 	 * we just return an empty slot as required.
@@ -963,12 +1018,12 @@ MongoIterateForeignScan(ForeignScanState *node)
 	memset(columnValues, 0, columnCount * sizeof(Datum));
 	memset(columnNulls, true, columnCount * sizeof(bool));
 
-	if (MongoCursorNext(mongoCursor, NULL))
+	if (mongoCursorNext(mongoCursor, NULL))
 	{
-		const BSON *bsonDocument = MongoCursorBson(mongoCursor);
+		const BSON *bsonDocument = mongoCursorBson(mongoCursor);
 		const char *bsonDocumentKey = NULL; /* Top level document */
 
-		FillTupleSlot(bsonDocument, bsonDocumentKey,
+		fill_tuple_slot(bsonDocument, bsonDocumentKey,
 						fsstate->plannerInfo,
 						tupleDescriptor,
 						columnValues,
@@ -982,12 +1037,12 @@ MongoIterateForeignScan(ForeignScanState *node)
 }
 
 /*
- * MongoEndForeignScan
+ * mongoEndForeignScan
  *		Finishes scanning the foreign table, closes the cursor and the
  *		connection to MongoDB, and reclaims scan related resources.
  */
 static void
-MongoEndForeignScan(ForeignScanState *node)
+mongoEndForeignScan(ForeignScanState *node)
 {
 	MongoFdwScanState *fsstate;
 
@@ -1000,12 +1055,12 @@ MongoEndForeignScan(ForeignScanState *node)
 			mongo_free_options(fsstate->options);
 			fsstate->options = NULL;
 		}
-		MongoFreeScanState(fsstate);
+		mongo_free_scan_state(fsstate);
 	}
 }
 
 /*
- * MongoReScanForeignScan
+ * mongoReScanForeignScan
  *		Rescans the foreign table.
  *
  * Note that rescans in Mongo end up being notably more expensive than what the
@@ -1013,20 +1068,20 @@ MongoEndForeignScan(ForeignScanState *node)
  * functionality.
  */
 static void
-MongoReScanForeignScan(ForeignScanState *node)
+mongoReScanForeignScan(ForeignScanState *node)
 {
 	MongoFdwScanState *fsstate = (MongoFdwScanState *) node->fdw_state;
 
 	/* Close down the old cursor */
 	if (fsstate->mongoCursor)
 	{
-		MongoCursorDestroy(fsstate->mongoCursor);
+		mongoCursorDestroy(fsstate->mongoCursor);
 		fsstate->mongoCursor = NULL;
 	}
 }
 
 static List *
-MongoPlanForeignModify(PlannerInfo *root,
+mongoPlanForeignModify(PlannerInfo *root,
 					   ModifyTable *plan,
 					   Index resultRelation,
 					   int subplan_index)
@@ -1045,7 +1100,10 @@ MongoPlanForeignModify(PlannerInfo *root,
 #else
 	rel = table_open(rte->relid, NoLock);
 #endif
-	if (operation == CMD_INSERT)
+	if (operation == CMD_INSERT ||
+		(operation == CMD_UPDATE &&
+		 rel->trigdesc &&
+		 rel->trigdesc->trig_update_before_row))
 	{
 		TupleDesc	tupdesc = RelationGetDescr(rel);
 		int			attnum;
@@ -1108,11 +1166,11 @@ MongoPlanForeignModify(PlannerInfo *root,
 }
 
 /*
- * MongoBeginForeignModify
+ * mongoBeginForeignModify
  *		Begin an insert/update/delete operation on a foreign table.
  */
 static void
-MongoBeginForeignModify(ModifyTableState *mtstate,
+mongoBeginForeignModify(ModifyTableState *mtstate,
 						ResultRelInfo *resultRelInfo,
 						List *fdw_private,
 						int subplan_index,
@@ -1164,7 +1222,7 @@ MongoBeginForeignModify(ModifyTableState *mtstate,
 	fmstate->p_flinfo = (FmgrInfo *) palloc(sizeof(FmgrInfo) * n_params);
 	fmstate->p_nums = 0;
 
-	if (mtstate->operation == CMD_UPDATE)
+	if (mtstate->operation == CMD_UPDATE || mtstate->operation == CMD_DELETE)
 	{
 		Form_pg_attribute attr;
 #if PG_VERSION_NUM >= 140000
@@ -1207,11 +1265,11 @@ MongoBeginForeignModify(ModifyTableState *mtstate,
 }
 
 /*
- * MongoExecForeignInsert
+ * mongoExecForeignInsert
  *		Insert one row into a foreign table.
  */
 static TupleTableSlot *
-MongoExecForeignInsert(EState *estate,
+mongoExecForeignInsert(EState *estate,
 					   ResultRelInfo *resultRelInfo,
 					   TupleTableSlot *slot,
 					   TupleTableSlot *planSlot)
@@ -1224,7 +1282,7 @@ MongoExecForeignInsert(EState *estate,
 
 	fmstate = (MongoFdwModifyState *) resultRelInfo->ri_FdwState;
 
-	bsonDoc = BsonCreate();
+	bsonDoc = bsonCreate();
 
 	typoid = get_atttype(RelationGetRelid(resultRelInfo->ri_RelationDesc), 1);
 
@@ -1247,8 +1305,6 @@ MongoExecForeignInsert(EState *estate,
 #endif
 				elog(ERROR, "first column of MongoDB's foreign table must be \"_id\"");
 
-			if (typoid != NAMEOID)
-				elog(ERROR, "type of first column of MongoDB's foreign table must be \"NAME\"");
 #if PG_VERSION_NUM < 110000
 			if (strcmp(slot->tts_tupleDescriptor->attrs[0]->attname.data, "__doc") == 0)
 #else
@@ -1265,46 +1321,46 @@ MongoExecForeignInsert(EState *estate,
 				continue;
 
 #if PG_VERSION_NUM < 110000
-			AppendMongoValue(bsonDoc,
-							 slot->tts_tupleDescriptor->attrs[attnum - 1]->attname.data,
-							 value,
-							 isnull,
-							 slot->tts_tupleDescriptor->attrs[attnum - 1]->atttypid);
+			append_mongo_value(bsonDoc,
+							   slot->tts_tupleDescriptor->attrs[attnum - 1]->attname.data,
+							   value,
+							   isnull,
+							   slot->tts_tupleDescriptor->attrs[attnum - 1]->atttypid);
 #else
-			AppendMongoValue(bsonDoc,
-							 TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->attname.data,
-							 value,
-							 isnull,
-							 TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->atttypid);
+			append_mongo_value(bsonDoc,
+							   TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->attname.data,
+							   value,
+							   isnull,
+							   TupleDescAttr(slot->tts_tupleDescriptor, attnum - 1)->atttypid);
 #endif
 		}
 	}
-	BsonFinish(bsonDoc);
+	bsonFinish(bsonDoc);
 
 	/* Now we are ready to insert tuple/document into MongoDB */
-	MongoInsert(fmstate->mongoConnection, fmstate->options->svr_database,
+	mongoInsert(fmstate->mongoConnection, fmstate->options->svr_database,
 				fmstate->options->collectionName, bsonDoc);
 
-	BsonDestroy(bsonDoc);
+	bsonDestroy(bsonDoc);
 
 	return slot;
 }
 
 /*
- * MongoAddForeignUpdateTargets
+ * mongoAddForeignUpdateTargets
  *		Add column(s) needed for update/delete on a foreign table, we are using
  *		first column as row identification column, so we are adding that into
  *		target list.
  */
 #if PG_VERSION_NUM >= 140000
 static void
-MongoAddForeignUpdateTargets(PlannerInfo *root,
+mongoAddForeignUpdateTargets(PlannerInfo *root,
 							 Index rtindex,
 							 RangeTblEntry *target_rte,
 							 Relation target_relation)
 #else
 static void
-MongoAddForeignUpdateTargets(Query *parsetree,
+mongoAddForeignUpdateTargets(Query *parsetree,
 							 RangeTblEntry *target_rte,
 							 Relation target_relation)
 #endif
@@ -1356,7 +1412,7 @@ MongoAddForeignUpdateTargets(Query *parsetree,
 }
 
 static TupleTableSlot *
-MongoExecForeignUpdate(EState *estate,
+mongoExecForeignUpdate(EState *estate,
 					   ResultRelInfo *resultRelInfo,
 					   TupleTableSlot *slot,
 					   TupleTableSlot *planSlot)
@@ -1385,8 +1441,8 @@ MongoExecForeignUpdate(EState *estate,
 
 	typoid = get_atttype(foreignTableId, 1);
 
-	document = BsonCreate();
-	BsonAppendStartObject(document, "$set", &set);
+	document = bsonCreate();
+	bsonAppendStartObject(document, "$set", &set);
 
 	/* Get following parameters from slot */
 	if (slot != NULL && fmstate->target_attrs != NIL)
@@ -1413,42 +1469,42 @@ MongoExecForeignUpdate(EState *estate,
 
 			value = slot_getattr(slot, attnum, &isnull);
 #ifdef META_DRIVER
-			AppendMongoValue(&set, attr->attname.data, value,
-							 isnull ? true : false, attr->atttypid);
+			append_mongo_value(&set, attr->attname.data, value,
+							   isnull ? true : false, attr->atttypid);
 #else
-			AppendMongoValue(document, attr->attname.data, value,
-							 isnull ? true : false, attr->atttypid);
+			append_mongo_value(document, attr->attname.data, value,
+							   isnull ? true : false, attr->atttypid);
 #endif
 		}
 	}
-	BsonAppendFinishObject(document, &set);
-	BsonFinish(document);
+	bsonAppendFinishObject(document, &set);
+	bsonFinish(document);
 
-	op = BsonCreate();
-	if (!AppendMongoValue(op, columnName, datum, false, typoid))
+	op = bsonCreate();
+	if (!append_mongo_value(op, columnName, datum, false, typoid))
 	{
-		BsonDestroy(document);
+		bsonDestroy(document);
 		return NULL;
 	}
-	BsonFinish(op);
+	bsonFinish(op);
 
 	/* We are ready to update the row into MongoDB */
-	MongoUpdate(fmstate->mongoConnection, fmstate->options->svr_database,
+	mongoUpdate(fmstate->mongoConnection, fmstate->options->svr_database,
 				fmstate->options->collectionName, op, document);
 
-	BsonDestroy(op);
-	BsonDestroy(document);
+	bsonDestroy(op);
+	bsonDestroy(document);
 
 	/* Return NULL if nothing was updated on the remote end */
 	return slot;
 }
 
 /*
- * MongoExecForeignDelete
+ * mongoExecForeignDelete
  *		Delete one row from a foreign table
  */
 static TupleTableSlot *
-MongoExecForeignDelete(EState *estate,
+mongoExecForeignDelete(EState *estate,
 					   ResultRelInfo *resultRelInfo,
 					   TupleTableSlot *slot,
 					   TupleTableSlot *planSlot)
@@ -1466,7 +1522,7 @@ MongoExecForeignDelete(EState *estate,
 	foreignTableId = RelationGetRelid(resultRelInfo->ri_RelationDesc);
 
 	/* Get the id that was passed up as a resjunk column */
-	datum = ExecGetJunkAttribute(planSlot, 1, &isNull);
+	datum = ExecGetJunkAttribute(planSlot, fmstate->rowidAttno, &isNull);
 
 #if PG_VERSION_NUM < 110000
 	columnName = get_relid_attribute_name(foreignTableId, 1);
@@ -1476,30 +1532,30 @@ MongoExecForeignDelete(EState *estate,
 
 	typoid = get_atttype(foreignTableId, 1);
 
-	document = BsonCreate();
-	if (!AppendMongoValue(document, columnName, datum, false, typoid))
+	document = bsonCreate();
+	if (!append_mongo_value(document, columnName, datum, false, typoid))
 	{
-		BsonDestroy(document);
+		bsonDestroy(document);
 		return NULL;
 	}
-	BsonFinish(document);
+	bsonFinish(document);
 
 	/* Now we are ready to delete a single document from MongoDB */
-	MongoDelete(fmstate->mongoConnection, fmstate->options->svr_database,
+	mongoDelete(fmstate->mongoConnection, fmstate->options->svr_database,
 				fmstate->options->collectionName, document);
 
-	BsonDestroy(document);
+	bsonDestroy(document);
 
 	/* Return NULL if nothing was updated on the remote end */
 	return slot;
 }
 
 /*
- * MongoEndForeignModify
+ * mongoEndForeignModify
  *		Finish an insert/update/delete operation on a foreign table
  */
 static void
-MongoEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
+mongoEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
 {
 	MongoFdwModifyState *fmstate;
 
@@ -1511,19 +1567,19 @@ MongoEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
 			mongo_free_options(fmstate->options);
 			fmstate->options = NULL;
 		}
-		MongoFreeModifyState(fmstate);
+		mongo_free_modify_state(fmstate);
 		pfree(fmstate);
 	}
 }
 
 /*
- * ForeignTableDocumentCount
+ * foreign_table_document_count
  * 		Connects to the MongoDB server, and queries it for the number of
  * 		documents in the foreign collection. On success, the function returns
  * 		the document count.  On failure, the function returns -1.0.
  */
 static double
-ForeignTableDocumentCount(Oid foreignTableId)
+foreign_table_document_count(Oid foreignTableId)
 {
 	MongoFdwOptions *options;
 	MONGO_CONN *mongoConnection;
@@ -1548,7 +1604,7 @@ ForeignTableDocumentCount(Oid foreignTableId)
 	 */
 	mongoConnection = mongo_get_connection(server, user, options);
 
-	documentCount = MongoAggregateCount(mongoConnection, options->svr_database,
+	documentCount = mongoAggregateCount(mongoConnection, options->svr_database,
 										options->collectionName, emptyQuery);
 
 	mongo_free_options(options);
@@ -1557,7 +1613,7 @@ ForeignTableDocumentCount(Oid foreignTableId)
 }
 
 /*
- * FillTupleSlot
+ * fill_tuple_slot
  *		Walks over all key/value pairs in the given document.
  *
  * For each pair, the function checks if the key appears in the column mapping
@@ -1567,7 +1623,7 @@ ForeignTableDocumentCount(Oid foreignTableId)
  * should always be passed as NULL.
  */
 static void
-FillTupleSlot(const BSON *bsonDocument,
+fill_tuple_slot(const BSON *bsonDocument,
 			  const char *bsonDocumentKey,
 			  MongoPlanerInfo *plannerInfo,
 			  TupleDesc tupleDescriptor,
@@ -1578,19 +1634,19 @@ FillTupleSlot(const BSON *bsonDocument,
 	if (is_agg)
 	{
 		/* Fill tuple slot for aggregation query */
-		FillTupleSlotAgg(bsonDocument, bsonDocumentKey, plannerInfo,
-						 tupleDescriptor, columnValues, columnNulls);
+		fill_tuple_slot_agg(bsonDocument, bsonDocumentKey, plannerInfo,
+							tupleDescriptor, columnValues, columnNulls);
 	}
 	else
-		FillTupleSlotAttr(bsonDocument, bsonDocumentKey, plannerInfo,
-						  tupleDescriptor, columnValues, columnNulls);
+		fill_tuple_slot_attr(bsonDocument, bsonDocumentKey, plannerInfo,
+							 tupleDescriptor, columnValues, columnNulls);
 }
 
 /*
  * Fill Tuple Slot for aggregation.
  */
 static void
-FillTupleSlotAgg(const BSON *bsonDocument,
+fill_tuple_slot_agg(const BSON *bsonDocument,
 					const char *bsonDocumentKey,
 					MongoPlanerInfo *plannerInfo,
 					TupleDesc tupleDescriptor,
@@ -1600,13 +1656,13 @@ FillTupleSlotAgg(const BSON *bsonDocument,
 	BSON_ITERATOR bsonIterator = {NULL, 0};
 	ListCell	*lc;
 
-	if (BsonIterInit(&bsonIterator, (BSON *) bsonDocument) == false)
+	if (bsonIterInit(&bsonIterator, (BSON *) bsonDocument) == false)
 		elog(ERROR, "failed to initialize BSON iterator");
 
-	while (BsonIterNext(&bsonIterator))
+	while (bsonIterNext(&bsonIterator))
 	{
-		const char *bsonKey = BsonIterKey(&bsonIterator);
-		BSON_TYPE	bsonType = BsonIterType(&bsonIterator);
+		const char *bsonKey = bsonIterKey(&bsonIterator);
+		BSON_TYPE	bsonType = bsonIterType(&bsonIterator);
 		Oid			pgTypeId = InvalidOid;
 		Oid			pgArrayTypeId = InvalidOid;
 		int32		pgTypeMod;
@@ -1655,8 +1711,8 @@ FillTupleSlotAgg(const BSON *bsonDocument,
 			{
 				BSON		subObject;
 
-				BsonIterSubObject(&bsonIterator, &subObject);
-				FillTupleSlotAgg(&subObject,
+				bsonIterSubObject(&bsonIterator, &subObject);
+				fill_tuple_slot_agg(&subObject,
 								  bsonFullKey,
 								  plannerInfo,
 								  tupleDescriptor,
@@ -1674,18 +1730,14 @@ FillTupleSlotAgg(const BSON *bsonDocument,
 		if (OidIsValid(pgArrayTypeId) && bsonType == BSON_TYPE_ARRAY)
 			compatibleTypes = true;
 		else
-			compatibleTypes = ColumnTypesCompatible(bsonType, pgTypeId);
-
-		/* If types are incompatible, leave this target null */
-		if (!compatibleTypes)
-			continue;
+			compatibleTypes = column_types_compatible(bsonType, pgTypeId);
 
 		/* Fill in corresponding target value and null flag */
 		if (OidIsValid(pgArrayTypeId))
-			columnValues[targetIndex] = ColumnValueArray(&bsonIterator,
+			columnValues[targetIndex] = column_value_array(&bsonIterator,
 														 pgArrayTypeId);
 		else
-			columnValues[targetIndex] = ColumnValue(&bsonIterator,
+			columnValues[targetIndex] = column_value(&bsonIterator,
 													pgTypeId,
 													pgTypeMod);
 		columnNulls[targetIndex] = false;
@@ -1696,7 +1748,7 @@ FillTupleSlotAgg(const BSON *bsonDocument,
  * Fill Tuple Slot for attributes.
  */
 static void
-FillTupleSlotAttr(const BSON *bsonDocument,
+fill_tuple_slot_attr(const BSON *bsonDocument,
 					const char *bsonDocumentKey,
 					MongoPlanerInfo *plannerInfo,
 					TupleDesc tupleDescriptor,
@@ -1705,8 +1757,9 @@ FillTupleSlotAttr(const BSON *bsonDocument,
 {
 	BSON_ITERATOR bsonIterator = {NULL, 0};
 	ListCell	*lc;
+	List		*options;
 
-	if (BsonIterInit(&bsonIterator, (BSON *) bsonDocument) == false)
+	if (bsonIterInit(&bsonIterator, (BSON *) bsonDocument) == false)
 		elog(ERROR, "failed to initialize BSON iterator");
 
 	foreach(lc, plannerInfo->retrieved_attrs)
@@ -1722,7 +1775,7 @@ FillTupleSlotAttr(const BSON *bsonDocument,
 			Datum		columnValue;
 			char	   *str;
 
-			str = BsonAsJson(bsonDocument);
+			str = bsonAsJson(bsonDocument);
 			result = cstring_to_text_with_len(str, strlen(str));
 			lex = makeJsonLexContext(result, false);
 			pg_parse_json(lex, &nullSemAction);
@@ -1775,10 +1828,10 @@ FillTupleSlotAttr(const BSON *bsonDocument,
 		}
 	}
 
-	while (BsonIterNext(&bsonIterator))
+	while (bsonIterNext(&bsonIterator))
 	{
-		const char *bsonKey = BsonIterKey(&bsonIterator);
-		BSON_TYPE	bsonType = BsonIterType(&bsonIterator);
+		const char *bsonKey = bsonIterKey(&bsonIterator);
+		BSON_TYPE	bsonType = bsonIterType(&bsonIterator);
 		Oid			columnTypeId = InvalidOid;
 		Oid			columnArrayTypeId = InvalidOid;
 		int32		columnTypeMod;
@@ -1808,6 +1861,19 @@ FillTupleSlotAttr(const BSON *bsonDocument,
 			int			attnum = lfirst_int(lc) - 1;
 			char	   *colname = get_attname(plannerInfo->rel_oid, attnum + 1, false);
 
+			options = GetForeignColumnOptions(plannerInfo->rel_oid, attnum + 1);
+
+			foreach(lc, options)
+			{
+				DefElem    *def = (DefElem *) lfirst(lc);
+
+				if (strcmp(def->defname, "column_name") == 0)
+				{
+					colname = defGetString(def);
+					break;
+				}
+			}
+
 			if (strcmp(bsonFullKey, colname) == 0)
 			{
 				columnTypeId = TupleDescAttr(tupleDescriptor, attnum)->atttypid;
@@ -1826,13 +1892,13 @@ FillTupleSlotAttr(const BSON *bsonDocument,
 			{
 				BSON		subObject;
 
-				BsonIterSubObject(&bsonIterator, &subObject);
-				FillTupleSlotAttr(&subObject,
-								  bsonFullKey,
-								  plannerInfo,
-								  tupleDescriptor,
-								  columnValues,
-								  columnNulls);
+				bsonIterSubObject(&bsonIterator, &subObject);
+				fill_tuple_slot_attr(&subObject,
+									 bsonFullKey,
+									 plannerInfo,
+									 tupleDescriptor,
+									 columnValues,
+									 columnNulls);
 				continue;
 			}
 		}
@@ -1845,18 +1911,14 @@ FillTupleSlotAttr(const BSON *bsonDocument,
 		if (OidIsValid(columnArrayTypeId) && bsonType == BSON_TYPE_ARRAY)
 			compatibleTypes = true;
 		else
-			compatibleTypes = ColumnTypesCompatible(bsonType, columnTypeId);
-
-		/* If types are incompatible, leave this column null */
-		if (!compatibleTypes)
-			continue;
+			compatibleTypes = column_types_compatible(bsonType, columnTypeId);
 
 		/* Fill in corresponding column value and null flag */
 		if (OidIsValid(columnArrayTypeId))
-			columnValues[columnIndex] = ColumnValueArray(&bsonIterator,
+			columnValues[columnIndex] = column_value_array(&bsonIterator,
 														 columnArrayTypeId);
 		else
-			columnValues[columnIndex] = ColumnValue(&bsonIterator,
+			columnValues[columnIndex] = column_value(&bsonIterator,
 													columnTypeId,
 													columnTypeMod);
 		columnNulls[columnIndex] = false;
@@ -1864,7 +1926,7 @@ FillTupleSlotAttr(const BSON *bsonDocument,
 }
 
 /*
- * ColumnTypesCompatible
+ * column_types_compatible
  * 		Checks if the given BSON type can be converted to the given PostgreSQL
  * 		type.
  *
@@ -1872,7 +1934,7 @@ FillTupleSlotAttr(const BSON *bsonDocument,
  * applied by BSON APIs.
  */
 static bool
-ColumnTypesCompatible(BSON_TYPE bsonType, Oid columnTypeId)
+column_types_compatible(BSON_TYPE bsonType, Oid columnTypeId)
 {
 	bool		compatibleTypes = false;
 
@@ -1888,6 +1950,10 @@ ColumnTypesCompatible(BSON_TYPE bsonType, Oid columnTypeId)
 			if (bsonType == BSON_TYPE_INT32 || bsonType == BSON_TYPE_INT64 ||
 				bsonType == BSON_TYPE_DOUBLE)
 				compatibleTypes = true;
+#ifdef META_DRIVER
+			if (bsonType == BSON_TYPE_BOOL)
+				compatibleTypes = true;
+#endif
 			break;
 		case BOOLOID:
 			if (bsonType == BSON_TYPE_INT32 || bsonType == BSON_TYPE_INT64 ||
@@ -1897,7 +1963,7 @@ ColumnTypesCompatible(BSON_TYPE bsonType, Oid columnTypeId)
 		case BPCHAROID:
 		case VARCHAROID:
 		case TEXTOID:
-			if (bsonType == BSON_TYPE_UTF8)
+			if (bsonType == BSON_TYPE_UTF8 || bsonType == BSON_TYPE_OID)
 				compatibleTypes = true;
 			break;
 		case BYTEAOID:
@@ -1935,7 +2001,7 @@ ColumnTypesCompatible(BSON_TYPE bsonType, Oid columnTypeId)
 			break;
 		default:
 			/*
-			 * We currently error out on other data types. Some types such as
+			 * We currently error out on other data types.  Some types such as
 			 * byte arrays are easy to add, but they need testing.
 			 *
 			 * Other types such as money or inet, do not have equivalents in
@@ -1948,11 +2014,16 @@ ColumnTypesCompatible(BSON_TYPE bsonType, Oid columnTypeId)
 			break;
 	}
 
+	if (!compatibleTypes)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+				 errmsg("invalid input syntax for type = %d, column type = %d", bsonType, columnTypeId)));
+
 	return compatibleTypes;
 }
 
 /*
- * ColumnValueArray
+ * column_value_array
  * 		Uses array element type id to read the current array pointed to by the
  * 		BSON iterator, and converts each array element (with matching type) to
  * 		the corresponding PostgreSQL datum.
@@ -1961,7 +2032,7 @@ ColumnTypesCompatible(BSON_TYPE bsonType, Oid columnTypeId)
  * returns the array datum.
  */
 static Datum
-ColumnValueArray(BSON_ITERATOR *bsonIterator, Oid valueTypeId)
+column_value_array(BSON_ITERATOR *bsonIterator, Oid valueTypeId)
 {
 	Datum	   *columnValueArray = palloc(INITIAL_ARRAY_CAPACITY * sizeof(Datum));
 	uint32		arrayCapacity = INITIAL_ARRAY_CAPACITY;
@@ -1974,13 +2045,13 @@ ColumnValueArray(BSON_ITERATOR *bsonIterator, Oid valueTypeId)
 
 	BSON_ITERATOR bsonSubIterator = {NULL, 0};
 
-	BsonIterSubIter(bsonIterator, &bsonSubIterator);
-	while (BsonIterNext(&bsonSubIterator))
+	bsonIterSubIter(bsonIterator, &bsonSubIterator);
+	while (bsonIterNext(&bsonSubIterator))
 	{
-		BSON_TYPE	bsonType = BsonIterType(&bsonSubIterator);
+		BSON_TYPE	bsonType = bsonIterType(&bsonSubIterator);
 		bool		compatibleTypes = false;
 
-		compatibleTypes = ColumnTypesCompatible(bsonType, valueTypeId);
+		compatibleTypes = column_types_compatible(bsonType, valueTypeId);
 		if (bsonType == BSON_TYPE_NULL || !compatibleTypes)
 			continue;
 
@@ -1993,8 +2064,8 @@ ColumnValueArray(BSON_ITERATOR *bsonIterator, Oid valueTypeId)
 		}
 
 		/* Use default type modifier (0) to convert column value */
-		columnValueArray[arrayIndex] = ColumnValue(&bsonSubIterator,
-												   valueTypeId, 0);
+		columnValueArray[arrayIndex] = column_value(&bsonSubIterator,
+													valueTypeId, 0);
 		arrayIndex++;
 	}
 
@@ -2015,113 +2086,79 @@ ColumnValueArray(BSON_ITERATOR *bsonIterator, Oid valueTypeId)
 }
 
 /*
- * ColumnValue
+ * column_value
  * 		Uses column type information to read the current value pointed to by
  * 		the BSON iterator, and converts this value to the corresponding
  * 		PostgreSQL datum.  The function then returns this datum.
  */
 static Datum
-ColumnValue(BSON_ITERATOR *bsonIterator, Oid columnTypeId, int32 columnTypeMod)
+column_value(BSON_ITERATOR *bsonIterator, Oid columnTypeId,
+			 int32 columnTypeMod)
 {
-	BSON_TYPE	bsonType = BsonIterType(bsonIterator);
+	BSON_TYPE	bsonType = bsonIterType(bsonIterator);
 	Datum		columnValue;
 
 	switch (columnTypeId)
 	{
 		case INT2OID:
 			{
-				int16		value;
-
-				MONGO_BSON_CONVERSION_DATA_TYPE(bsonIterator, columnTypeId, bsonType, value, int16);
+				int16		value = (int16) bsonIterInt32(bsonIterator);
 
 				columnValue = Int16GetDatum(value);
 			}
 			break;
 		case INT4OID:
 			{
-				int32		value;
-
-				MONGO_BSON_CONVERSION_DATA_TYPE(bsonIterator, columnTypeId, bsonType, value, int32);
+				int32		value = bsonIterInt32(bsonIterator);
 
 				columnValue = Int32GetDatum(value);
 			}
 			break;
 		case INT8OID:
 			{
-				int64		value;
-
-				MONGO_BSON_CONVERSION_DATA_TYPE(bsonIterator, columnTypeId, bsonType, value, int64);
+				int64		value = bsonIterInt64(bsonIterator);
 
 				columnValue = Int64GetDatum(value);
 			}
 			break;
 		case FLOAT4OID:
 			{
-				float4		value;
-
-				MONGO_BSON_CONVERSION_DATA_TYPE(bsonIterator, columnTypeId, bsonType, value, float4);
+				float4		value = (float4) bsonIterDouble(bsonIterator);
 
 				columnValue = Float4GetDatum(value);
 			}
 			break;
 		case FLOAT8OID:
 			{
-				float8		value;
-
-				MONGO_BSON_CONVERSION_DATA_TYPE(bsonIterator, columnTypeId, bsonType, value, float8);
+				float8		value = bsonIterDouble(bsonIterator);
 
 				columnValue = Float8GetDatum(value);
 			}
 			break;
 		case NUMERICOID:
 			{
-				float8		value;
-				Datum		valueDatum;
+				float8		value = bsonIterDouble(bsonIterator);
+				Datum		valueDatum = DirectFunctionCall1(float8_numeric,
+															 Float8GetDatum(value));
 
-				MONGO_BSON_CONVERSION_DATA_TYPE(bsonIterator, columnTypeId, bsonType, value, float8);
-
-				valueDatum = Float8GetDatum(value);
-
-				/* Overlook type modifiers for numeric */
-				columnValue = DirectFunctionCall1(float8_numeric, valueDatum);
+				/*
+				 * Since we have a Numeric value, using numeric() here instead
+				 * of numeric_in() input function for typmod conversion.
+				 */
+				columnValue = DirectFunctionCall2(numeric, valueDatum,
+												  Int32GetDatum(columnTypeMod));
 			}
 			break;
 		case BOOLOID:
 			{
-				bool		value;
-
-				MONGO_BSON_CONVERSION_DATA_TYPE(bsonIterator, columnTypeId, bsonType, value, bool);
+				bool		value = bsonIterBool(bsonIterator);
 
 				columnValue = BoolGetDatum(value);
 			}
 			break;
 		case BPCHAROID:
-			{
-				const char *value = BsonIterString(bsonIterator);
-				Datum		valueDatum = CStringGetDatum(value);
-
-				columnValue = DirectFunctionCall3(bpcharin, valueDatum,
-												  ObjectIdGetDatum(InvalidOid),
-												  Int32GetDatum(columnTypeMod));
-			}
-			break;
 		case VARCHAROID:
-			{
-				const char *value = BsonIterString(bsonIterator);
-				Datum		valueDatum = CStringGetDatum(value);
-
-				columnValue = DirectFunctionCall3(varcharin, valueDatum,
-												  ObjectIdGetDatum(InvalidOid),
-												  Int32GetDatum(columnTypeMod));
-			}
-			break;
 		case TEXTOID:
-			{
-				const char *value = BsonIterString(bsonIterator);
-
-				columnValue = CStringGetTextDatum(value);
-			}
-			break;
 		case NAMEOID:
 			{
 				const char *name_val;
@@ -2132,7 +2169,7 @@ ColumnValue(BSON_ITERATOR *bsonIterator, Oid columnTypeId, int32 columnTypeMod)
 					case BSON_TYPE_OID:
 						{
 							char		value[NAMEDATALEN];
-							bson_oid_t *bsonObjectId = (bson_oid_t *) BsonIterOid(bsonIterator);
+							bson_oid_t *bsonObjectId = (bson_oid_t *) bsonIterOid(bsonIterator);
 
 							bson_oid_to_string(bsonObjectId, value);
 							name_val = value;
@@ -2140,7 +2177,7 @@ ColumnValue(BSON_ITERATOR *bsonIterator, Oid columnTypeId, int32 columnTypeMod)
 						break;
 					case BSON_TYPE_UTF8:
 						{
-							name_val = BsonIterString(bsonIterator);
+							name_val = bsonIterString(bsonIterator);
 						}
 						break;
 					default:
@@ -2149,10 +2186,35 @@ ColumnValue(BSON_ITERATOR *bsonIterator, Oid columnTypeId, int32 columnTypeMod)
 							errmsg("cannot convert BSON type to column type"),
 							errhint("Column type: %u", (uint32) columnTypeId)));
 				}
-				valueDatum = CStringGetDatum(name_val);
-				columnValue = DirectFunctionCall3(namein, valueDatum,
-												  ObjectIdGetDatum(InvalidOid),
-												  Int32GetDatum(columnTypeMod));
+
+				if (columnTypeId == TEXTOID)
+				{
+					valueDatum = CStringGetTextDatum(name_val);
+					columnValue = valueDatum;
+				}
+				else
+				{
+					PGFunction	conversion_func = NULL;
+
+					valueDatum = CStringGetDatum(name_val);
+					switch (columnTypeId)
+					{
+						case BPCHAROID:
+							conversion_func = bpcharin;
+							break;
+						case VARCHAROID:
+							conversion_func = varcharin;
+							break;
+						case NAMEOID:
+							conversion_func = namein;
+							break;
+						default:
+							break;
+					}
+					columnValue = DirectFunctionCall3(conversion_func, valueDatum,
+													ObjectIdGetDatum(InvalidOid),
+													Int32GetDatum(columnTypeMod));
+				}
 			}
 			break;
 		case BYTEAOID:
@@ -2161,20 +2223,20 @@ ColumnValue(BSON_ITERATOR *bsonIterator, Oid columnTypeId, int32 columnTypeMod)
 				char	   *value;
 				bytea	   *result;
 #ifdef META_DRIVER
-				switch (BsonIterType(bsonIterator))
+				switch (bsonIterType(bsonIterator))
 				{
 					case BSON_TYPE_OID:
-						value = (char *) BsonIterOid(bsonIterator);
+						value = (char *) bsonIterOid(bsonIterator);
 						value_len = 12;
 						break;
 					default:
-						value = (char *) BsonIterBinData(bsonIterator,
+						value = (char *) bsonIterBinData(bsonIterator,
 														 (uint32_t *) &value_len);
 						break;
 				}
 #else
-				value_len = BsonIterBinLen(bsonIterator);
-				value = (char *) BsonIterBinData(bsonIterator);
+				value_len = bsonIterBinLen(bsonIterator);
+				value = (char *) bsonIterBinData(bsonIterator);
 #endif
 				result = (bytea *) palloc(value_len + VARHDRSZ);
 				memcpy(VARDATA(result), value, value_len);
@@ -2184,7 +2246,7 @@ ColumnValue(BSON_ITERATOR *bsonIterator, Oid columnTypeId, int32 columnTypeMod)
 			break;
 		case DATEOID:
 			{
-				int64		valueMillis = BsonIterDate(bsonIterator);
+				int64		valueMillis = bsonIterDate(bsonIterator);
 				int64		timestamp = (valueMillis * 1000L) - POSTGRES_TO_UNIX_EPOCH_USECS;
 				Datum		timestampDatum = TimestampGetDatum(timestamp);
 
@@ -2195,7 +2257,7 @@ ColumnValue(BSON_ITERATOR *bsonIterator, Oid columnTypeId, int32 columnTypeMod)
 		case TIMESTAMPOID:
 		case TIMESTAMPTZOID:
 			{
-				int64		valueMillis = BsonIterDate(bsonIterator);
+				int64		valueMillis = bsonIterDate(bsonIterator);
 				int64		timestamp = (valueMillis * 1000L) - POSTGRES_TO_UNIX_EPOCH_USECS;
 
 				/* Overlook type modifiers for timestamp */
@@ -2235,135 +2297,6 @@ ColumnValue(BSON_ITERATOR *bsonIterator, Oid columnTypeId, int32 columnTypeMod)
 	return columnValue;
 }
 
-void
-BsonToJsonString(StringInfo output, BSON_ITERATOR i, bool isArray)
-{
-	const char *key;
-	bool		isFirstElement;
-	char		beginSymbol = '{';
-	char		endSymbol = '}';
-	BSON_TYPE	bsonType;
-
-	if (isArray)
-	{
-		beginSymbol = '[';
-		endSymbol = ']';
-	}
-
-#ifndef META_DRIVER
-	{
-		const char *bsonData = bson_iterator_value(&i);
-
-		bson_iterator_from_buffer(&i, bsonData);
-	}
-#endif
-
-	appendStringInfoChar(output, beginSymbol);
-
-	isFirstElement = true;
-	while (BsonIterNext(&i))
-	{
-		if (!isFirstElement)
-			appendStringInfoChar(output, ',');
-
-		bsonType = BsonIterType(&i);
-		if (bsonType == 0)
-			break;
-
-		key = BsonIterKey(&i);
-
-		if (!isArray)
-			appendStringInfo(output, "\"%s\":", key);
-
-		switch (bsonType)
-		{
-			case BSON_TYPE_DOUBLE:
-				appendStringInfo(output, "%f", BsonIterDouble(&i));
-				break;
-			case BSON_TYPE_UTF8:
-				appendStringInfo(output, "\"%s\"",
-								 EscapeJsonString(BsonIterString(&i)));
-				break;
-			case BSON_TYPE_SYMBOL:
-				ereport(ERROR,
-						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-						 errmsg("\"symbol\" BSON type is deprecated and unsupported"),
-						 errhint("Symbol: %s", BsonIterString(&i))));
-				break;
-			case BSON_TYPE_OID:
-				{
-					char		oidhex[25];
-
-					BsonOidToString(BsonIterOid(&i), oidhex);
-					appendStringInfo(output, "{\"$oid\":\"%s\"}", oidhex);
-					break;
-				}
-			case BSON_TYPE_BOOL:
-				appendStringInfoString(output,
-									   BsonIterBool(&i) ? "true" : "false");
-				break;
-			case BSON_TYPE_DATE_TIME:
-				appendStringInfo(output, "{\"$date\":%ld}",
-								 (long int) BsonIterDate(&i));
-				break;
-			case BSON_TYPE_BINDATA:
-				/* It's possible to encode the data with base64 here. */
-				ereport(ERROR,
-						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-						 errmsg("support for \"binary data\" BSON type is not implemented")));
-				break;
-			case BSON_TYPE_UNDEFINED:
-				ereport(ERROR,
-						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-						 errmsg("\"undefined\" BSON type is deprecated and unsupported")));
-				break;
-			case BSON_TYPE_NULL:
-				appendStringInfoString(output, "null");
-				break;
-			case BSON_TYPE_REGEX:
-				ereport(ERROR,
-						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-						 errmsg("support for \"regex\" BSON type is not implemented"),
-						 errhint("Regex: %s", BsonIterRegex(&i))));
-				break;
-			case BSON_TYPE_CODE:
-				ereport(ERROR,
-						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-						 errmsg("support for \"code\" BSON type is not implemented"),
-						 errhint("Code: %s", BsonIterCode(&i))));
-				break;
-			case BSON_TYPE_CODEWSCOPE:
-				ereport(ERROR,
-						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-						 errmsg("support for \"code\" with scope` BSON type is not implemented")));
-				break;
-			case BSON_TYPE_INT32:
-				appendStringInfo(output, "%d", BsonIterInt32(&i));
-				break;
-			case BSON_TYPE_INT64:
-				appendStringInfo(output, "%lu", (uint64_t) BsonIterInt64(&i));
-				break;
-			case BSON_TYPE_TIMESTAMP:
-				ereport(ERROR,
-						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-						 errmsg("internal `timestamp` BSON type is and unsupported")));
-				break;
-			case BSON_TYPE_DOCUMENT:
-				BsonToJsonString(output, i, false);
-				break;
-			case BSON_TYPE_ARRAY:
-				BsonToJsonString(output, i, true);
-				break;
-			default:
-				ereport(ERROR,
-						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
-						 errmsg("unsupported BSON type: %x", bsonType)));
-		}
-		isFirstElement = false;
-	}
-	appendStringInfoChar(output, endSymbol);
-}
-
 /*
  * mongo_BsonToStringValue
  * 	Convert a BSON value into string format.
@@ -2374,33 +2307,33 @@ mongo_BsonToStringValue(StringInfo output, BSON_ITERATOR *bsIterator, BSON_TYPE 
 	switch (bsonType)
 	{
 		case BSON_TYPE_DOUBLE:
-			appendStringInfo(output, "%f", BsonIterDouble(bsIterator));
+			appendStringInfo(output, "%f", bsonIterDouble(bsIterator));
 			break;
 		case BSON_TYPE_UTF8:
 			appendStringInfo(output, "\"%s\"",
-								EscapeJsonString(BsonIterString(bsIterator)));
+								escape_json_string(bsonIterString(bsIterator)));
 			break;
 		case BSON_TYPE_SYMBOL:
 			ereport(ERROR,
 					(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
 						errmsg("\"symbol\" BSON type is deprecated and unsupported"),
-						errhint("Symbol: %s", BsonIterString(bsIterator))));
+						errhint("Symbol: %s", bsonIterString(bsIterator))));
 			break;
 		case BSON_TYPE_OID:
 			{
 				char		oidhex[25];
 
-				BsonOidToString(BsonIterOid(bsIterator), oidhex);
+				bsonOidToString(bsonIterOid(bsIterator), oidhex);
 				appendStringInfo(output, "{\"$oid\":\"%s\"}", oidhex);
 				break;
 			}
 		case BSON_TYPE_BOOL:
 			appendStringInfoString(output,
-									BsonIterBool(bsIterator) ? "true" : "false");
+									bsonIterBool(bsIterator) ? "true" : "false");
 			break;
 		case BSON_TYPE_DATE_TIME:
 			appendStringInfo(output, "{\"$date\":%ld}",
-								(long int) BsonIterDate(bsIterator));
+								(long int) bsonIterDate(bsIterator));
 			break;
 		case BSON_TYPE_BINDATA:
 			/* It's possible to encode the data with base64 here. */
@@ -2420,13 +2353,13 @@ mongo_BsonToStringValue(StringInfo output, BSON_ITERATOR *bsIterator, BSON_TYPE 
 			ereport(ERROR,
 					(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
 						errmsg("support for \"regex\" BSON type is not implemented"),
-						errhint("Regex: %s", BsonIterRegex(bsIterator))));
+						errhint("Regex: %s", bsonIterRegex(bsIterator))));
 			break;
 		case BSON_TYPE_CODE:
 			ereport(ERROR,
 					(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
 						errmsg("support for \"code\" BSON type is not implemented"),
-						errhint("Code: %s", BsonIterCode(bsIterator))));
+						errhint("Code: %s", bsonIterCode(bsIterator))));
 			break;
 		case BSON_TYPE_CODEWSCOPE:
 			ereport(ERROR,
@@ -2434,10 +2367,10 @@ mongo_BsonToStringValue(StringInfo output, BSON_ITERATOR *bsIterator, BSON_TYPE 
 						errmsg("support for \"code\" with scope` BSON type is not implemented")));
 			break;
 		case BSON_TYPE_INT32:
-			appendStringInfo(output, "%d", BsonIterInt32(bsIterator));
+			appendStringInfo(output, "%d", bsonIterInt32(bsIterator));
 			break;
 		case BSON_TYPE_INT64:
-			appendStringInfo(output, "%lu", (uint64_t) BsonIterInt64(bsIterator));
+			appendStringInfo(output, "%lu", (uint64_t) bsonIterInt64(bsIterator));
 			break;
 		case BSON_TYPE_TIMESTAMP:
 			ereport(ERROR,
@@ -2449,10 +2382,10 @@ mongo_BsonToStringValue(StringInfo output, BSON_ITERATOR *bsIterator, BSON_TYPE 
 			{
 #ifdef META_DRIVER
 				/* Convert BSON to JSON value */
-				BsonToJsonStringValue(output, bsIterator, BSON_TYPE_ARRAY == bsonType);
+				bsonToJsonStringValue(output, bsIterator, BSON_TYPE_ARRAY == bsonType);
 #else
 				/* Convert BSON to JSON value */
-				BsonToJsonString(output, *bsIterator, BSON_TYPE_ARRAY == bsonType);
+				bson_to_json_string(output, *bsIterator, BSON_TYPE_ARRAY == bsonType);
 #endif
 			}
 			break;
@@ -2463,12 +2396,135 @@ mongo_BsonToStringValue(StringInfo output, BSON_ITERATOR *bsIterator, BSON_TYPE 
 	}
 }
 
+#ifndef META_DRIVER
+static void
+bson_to_json_string(StringInfo output, BSON_ITERATOR i, bool isArray)
+{
+	const char *key;
+	bool		isFirstElement;
+	char		beginSymbol = '{';
+	char		endSymbol = '}';
+	BSON_TYPE	bsonType;
+
+	if (isArray)
+	{
+		beginSymbol = '[';
+		endSymbol = ']';
+	}
+
+	appendStringInfoChar(output, beginSymbol);
+
+	isFirstElement = true;
+	while (bsonIterNext(&i))
+	{
+		if (!isFirstElement)
+			appendStringInfoChar(output, ',');
+
+		bsonType = bsonIterType(&i);
+		if (bsonType == 0)
+			break;
+
+		key = bsonIterKey(&i);
+
+		if (!isArray)
+			appendStringInfo(output, "\"%s\":", key);
+
+		switch (bsonType)
+		{
+			case BSON_TYPE_DOUBLE:
+				appendStringInfo(output, "%f", bsonIterDouble(&i));
+				break;
+			case BSON_TYPE_UTF8:
+				appendStringInfo(output, "\"%s\"",
+								 escape_json_string(bsonIterString(&i)));
+				break;
+			case BSON_TYPE_SYMBOL:
+				ereport(ERROR,
+						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+						 errmsg("\"symbol\" BSON type is deprecated and unsupported"),
+						 errhint("Symbol: %s", bsonIterString(&i))));
+				break;
+			case BSON_TYPE_OID:
+				{
+					char		oidhex[25];
+
+					bsonOidToString(bsonIterOid(&i), oidhex);
+					appendStringInfo(output, "{\"$oid\":\"%s\"}", oidhex);
+					break;
+				}
+			case BSON_TYPE_BOOL:
+				appendStringInfoString(output,
+									   bsonIterBool(&i) ? "true" : "false");
+				break;
+			case BSON_TYPE_DATE_TIME:
+				appendStringInfo(output, "{\"$date\":%ld}",
+								 (long int) bsonIterDate(&i));
+				break;
+			case BSON_TYPE_BINDATA:
+				/* It's possible to encode the data with base64 here. */
+				ereport(ERROR,
+						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+						 errmsg("support for \"binary data\" BSON type is not implemented")));
+				break;
+			case BSON_TYPE_UNDEFINED:
+				ereport(ERROR,
+						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+						 errmsg("\"undefined\" BSON type is deprecated and unsupported")));
+				break;
+			case BSON_TYPE_NULL:
+				appendStringInfoString(output, "null");
+				break;
+			case BSON_TYPE_REGEX:
+				ereport(ERROR,
+						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+						 errmsg("support for \"regex\" BSON type is not implemented"),
+						 errhint("Regex: %s", bsonIterRegex(&i))));
+				break;
+			case BSON_TYPE_CODE:
+				ereport(ERROR,
+						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+						 errmsg("support for \"code\" BSON type is not implemented"),
+						 errhint("Code: %s", bsonIterCode(&i))));
+				break;
+			case BSON_TYPE_CODEWSCOPE:
+				ereport(ERROR,
+						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+						 errmsg("support for \"code\" with scope` BSON type is not implemented")));
+				break;
+			case BSON_TYPE_INT32:
+				appendStringInfo(output, "%d", bsonIterInt32(&i));
+				break;
+			case BSON_TYPE_INT64:
+				appendStringInfo(output, "%lu", (uint64_t) bsonIterInt64(&i));
+				break;
+			case BSON_TYPE_TIMESTAMP:
+				ereport(ERROR,
+						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+						 errmsg("internal `timestamp` BSON type is and unsupported")));
+				break;
+			case BSON_TYPE_DOCUMENT:
+				bson_to_json_string(output, i, false);
+				break;
+			case BSON_TYPE_ARRAY:
+				bson_to_json_string(output, i, true);
+				break;
+			default:
+				ereport(ERROR,
+						(errcode(ERRCODE_FDW_INVALID_DATA_TYPE),
+						 errmsg("unsupported BSON type: %x", bsonType)));
+		}
+		isFirstElement = false;
+	}
+	appendStringInfoChar(output, endSymbol);
+}
+#endif
+
 /*
- * EscapeJsonString
+ * escape_json_string
  *		Escapes a string for safe inclusion in JSON.
  */
-const char *
-EscapeJsonString(const char *string)
+static const char *
+escape_json_string(const char *string)
 {
 	StringInfo	buffer;
 	const char *ptr;
@@ -2524,25 +2580,25 @@ EscapeJsonString(const char *string)
 }
 
 /*
- * MongoFreeScanState
+ * mongo_free_scan_state
  *		Closes the cursor and connection to MongoDB, and reclaims all Mongo
  *		related resources allocated for the foreign scan.
  */
 static void
-MongoFreeScanState(MongoFdwScanState *fsstate)
+mongo_free_scan_state(MongoFdwScanState *fsstate)
 {
 	if (fsstate == NULL)
 		return;
 
 	if (fsstate->queryDocument)
 	{
-		BsonDestroy(fsstate->queryDocument);
+		bsonDestroy(fsstate->queryDocument);
 		fsstate->queryDocument = NULL;
 	}
 
 	if (fsstate->mongoCursor)
 	{
-		MongoCursorDestroy(fsstate->mongoCursor);
+		mongoCursorDestroy(fsstate->mongoCursor);
 		fsstate->mongoCursor = NULL;
 	}
 
@@ -2551,25 +2607,25 @@ MongoFreeScanState(MongoFdwScanState *fsstate)
 }
 
 /*
- * MongoFreeModifyState
+ * mongo_free_modify_state
  *		Closes the cursor and connection to MongoDB, and reclaims all Mongo
  *		related resources allocated for the foreign scan.
  */
 static void
-MongoFreeModifyState(MongoFdwModifyState *fmstate)
+mongo_free_modify_state(MongoFdwModifyState *fmstate)
 {
 	if (fmstate == NULL)
 		return;
 
 	if (fmstate->queryDocument)
 	{
-		BsonDestroy(fmstate->queryDocument);
+		bsonDestroy(fmstate->queryDocument);
 		fmstate->queryDocument = NULL;
 	}
 
 	if (fmstate->mongoCursor)
 	{
-		MongoCursorDestroy(fmstate->mongoCursor);
+		mongoCursorDestroy(fmstate->mongoCursor);
 		fmstate->mongoCursor = NULL;
 	}
 
@@ -2578,11 +2634,11 @@ MongoFreeModifyState(MongoFdwModifyState *fmstate)
 }
 
 /*
- * MongoAnalyzeForeignTable
+ * mongoAnalyzeForeignTable
  *		Collects statistics for the given foreign table.
  */
 static bool
-MongoAnalyzeForeignTable(Relation relation,
+mongoAnalyzeForeignTable(Relation relation,
 						 AcquireSampleRowsFunc *func,
 						 BlockNumber *totalpages)
 {
@@ -2595,7 +2651,7 @@ MongoAnalyzeForeignTable(Relation relation,
 	double		foreignTableSize;
 
 	foreignTableId = RelationGetRelid(relation);
-	documentCount = ForeignTableDocumentCount(foreignTableId);
+	documentCount = foreign_table_document_count(foreignTableId);
 
 	if (documentCount > 0.0)
 	{
@@ -2620,13 +2676,13 @@ MongoAnalyzeForeignTable(Relation relation,
 				 errhint("Could not	collect statistics about foreign table.")));
 
 	(*totalpages) = pageCount;
-	(*func) = MongoAcquireSampleRows;
+	(*func) = mongo_acquire_sample_rows;
 
 	return true;
 }
 
 /*
- * MongoAcquireSampleRows
+ * mongo_acquire_sample_rows
  *		Acquires a random sample of rows from the foreign table.
  *
  * Selected rows are returned in the caller allocated sampleRows array,
@@ -2642,12 +2698,12 @@ MongoAnalyzeForeignTable(Relation relation,
  * index scans).
  */
 static int
-MongoAcquireSampleRows(Relation relation,
-					   int errorLevel,
-					   HeapTuple *sampleRows,
-					   int targetRowCount,
-					   double *totalRowCount,
-					   double *totalDeadRowCount)
+mongo_acquire_sample_rows(Relation relation,
+						  int errorLevel,
+						  HeapTuple *sampleRows,
+						  int targetRowCount,
+						  double *totalRowCount,
+						  double *totalDeadRowCount)
 {
 	MONGO_CONN *mongoConnection;
 	int			sampleRowCount = 0;
@@ -2661,7 +2717,7 @@ MongoAcquireSampleRows(Relation relation,
 	AttrNumber	columnCount;
 	AttrNumber	columnId;
 	MONGO_CURSOR *mongoCursor;
-	BSON	   *queryDocument;
+	BSON	   *queryDocument = bsonCreate();
 	List	   *columnList = NIL;
 	char	   *relationName;
 	MemoryContext oldContext = CurrentMemoryContext;
@@ -2713,10 +2769,21 @@ MongoAcquireSampleRows(Relation relation,
 	 */
 	mongoConnection = mongo_get_connection(server, user, options);
 
-	queryDocument = QueryDocument(foreignTableId, NIL, NULL);
+	if (!bsonFinish(queryDocument))
+	{
+#ifdef META_DRIVER
+		ereport(ERROR,
+				(errmsg("could not create document for query"),
+				 errhint("BSON flags: %d", queryDocument->flags)));
+#else
+		ereport(ERROR,
+				(errmsg("could not create document for query"),
+				 errhint("BSON error: %d", queryDocument->err)));
+#endif
+	}
 
 	/* Create cursor for collection name and set query */
-	mongoCursor = MongoCursorCreate(mongoConnection, options->svr_database,
+	mongoCursor = mongoCursorCreate(mongoConnection, options->svr_database,
 									options->collectionName, queryDocument, false);
 
 	/*
@@ -2750,16 +2817,16 @@ MongoAcquireSampleRows(Relation relation,
 		memset(columnValues, 0, columnCount * sizeof(Datum));
 		memset(columnNulls, true, columnCount * sizeof(bool));
 
-		if (MongoCursorNext(mongoCursor, NULL))
+		if (mongoCursorNext(mongoCursor, NULL))
 		{
-			const BSON *bsonDocument = MongoCursorBson(mongoCursor);
+			const BSON *bsonDocument = mongoCursorBson(mongoCursor);
 			const char *bsonDocumentKey = NULL; /* Top level document */
 
 			/* Fetch next tuple */
 			MemoryContextReset(tupleContext);
 			MemoryContextSwitchTo(tupleContext);
 
-			FillTupleSlot(bsonDocument,
+			fill_tuple_slot(bsonDocument,
 							bsonDocumentKey,
 							plannerInfo,
 							tupleDescriptor,
@@ -2835,7 +2902,7 @@ MongoAcquireSampleRows(Relation relation,
 	}
 
 	/* Only clean up the query struct, but not its data */
-	BsonDestroy(queryDocument);
+	bsonDestroy(queryDocument);
 
 	/* Clean up */
 	MemoryContextDelete(tupleContext);
@@ -2863,14 +2930,14 @@ mongo_fdw_version(PG_FUNCTION_ARGS)
 
 #if PG_VERSION_NUM >= 110000
 /*
- * MongoBeginForeignInsert
+ * mongoBeginForeignInsert
  * 		Prepare for an insert operation triggered by partition routing
  * 		or COPY FROM.
  *
  * This is not yet supported, so raise an error.
  */
 static void
-MongoBeginForeignInsert(ModifyTableState *mtstate,
+mongoBeginForeignInsert(ModifyTableState *mtstate,
 						ResultRelInfo *resultRelInfo)
 {
 	ereport(ERROR,
@@ -2879,14 +2946,14 @@ MongoBeginForeignInsert(ModifyTableState *mtstate,
 }
 
 /*
- * MongoEndForeignInsert
+ * mongoEndForeignInsert
  * 		BeginForeignInsert() is not yet implemented, hence we do not
  * 		have anything to cleanup as of now. We throw an error here just
  * 		to make sure when we do that we do not forget to cleanup
  * 		resources.
  */
 static void
-MongoEndForeignInsert(EState *estate, ResultRelInfo *resultRelInfo)
+mongoEndForeignInsert(EState *estate, ResultRelInfo *resultRelInfo)
 {
 	ereport(ERROR,
 			(errcode(ERRCODE_FDW_UNABLE_TO_CREATE_EXECUTION),
@@ -2895,192 +2962,13 @@ MongoEndForeignInsert(EState *estate, ResultRelInfo *resultRelInfo)
 #endif
 
 /*
- * Assess whether the join between inner and outer relations can be pushed down
- * to the foreign server. As a side effect, save information we obtain in this
- * function to MongoFdwRelationInfo passed in.
- */
-static bool
-mongo_foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
-				RelOptInfo *outerrel, RelOptInfo *innerrel,
-				JoinPathExtraData *extra)
-{
-	MongoFdwRelationInfo *fpinfo;
-	MongoFdwRelationInfo *fpinfo_o;
-	MongoFdwRelationInfo *fpinfo_i;
-	ListCell   *lc;
-	List	   *joinclauses;
-
-	/*
-	 * We support pushing down LEFT joins.
-	 */
-	if (jointype != JOIN_LEFT)
-		return false;
-
-	/*
-	 * If either of the joining relations is marked as unsafe to pushdown, the
-	 * join can not be pushed down.
-	 */
-	fpinfo = (MongoFdwRelationInfo *) joinrel->fdw_private;
-	fpinfo_o = (MongoFdwRelationInfo *) outerrel->fdw_private;
-	fpinfo_i = (MongoFdwRelationInfo *) innerrel->fdw_private;
-	if (!fpinfo_o || !fpinfo_o->pushdown_safe ||
-		!fpinfo_i || !fpinfo_i->pushdown_safe)
-		return false;
-
-	/*
-	 * If joining relations have local conditions, those conditions are
-	 * required to be applied before joining the relations. Hence the join can
-	 * not be pushed down.
-	 */
-	if (fpinfo_o->local_conds || fpinfo_i->local_conds)
-		return false;
-
-	/*
-	 * In case the whole-row reference is under an outer join, currently mongo_fdw
-	 * can not support to build the bson query document for it, so we can not push
-	 * down.
-	 */
-	foreach(lc, joinrel->reltarget->exprs)
-	{
-		Expr *expr = (Expr *) lfirst(lc);
-		if (IsA(expr, Var))
-		{
-			Var *var = (Var *)expr;
-
-			if (var->varattno == 0)
-				return false;
-		}
-	}
-
-	/*
-	 * Separate restrict list into join quals and pushed-down (other) quals.
-	 *
-	 * Join quals belonging to an outer join must all be shippable, else we
-	 * cannot execute the join remotely.  Add such quals to 'joinclauses'.
-	 *
-	 * Add other quals to fpinfo->remote_conds if they are shippable, else to
-	 * fpinfo->local_conds.  In an inner join it's okay to execute conditions
-	 * either locally or remotely; the same is true for pushed-down conditions
-	 * at an outer join.
-	 *
-	 * Note we might return failure after having already scribbled on
-	 * fpinfo->remote_conds and fpinfo->local_conds.  That's okay because we
-	 * won't consult those lists again if we deem the join unshippable.
-	 */
-	joinclauses = NIL;
-	foreach(lc, extra->restrictlist)
-	{
-		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
-		bool		is_remote_clause = mongo_is_foreign_expr(root, joinrel,
-															 rinfo->clause);
-
-		if (IS_OUTER_JOIN(jointype) &&
-			!RINFO_IS_PUSHED_DOWN(rinfo, joinrel->relids))
-		{
-			if (!is_remote_clause)
-				return false;
-			joinclauses = lappend(joinclauses, rinfo);
-		}
-		else
-		{
-			if (is_remote_clause)
-				fpinfo->remote_conds = lappend(fpinfo->remote_conds, rinfo);
-			else
-				fpinfo->local_conds = lappend(fpinfo->local_conds, rinfo);
-		}
-	}
-
-	/*
-	 * mongo_build_column_doc() isn't smart enough to handle anything other
-	 * than a Var.  In particular, if there's some PlaceHolderVar that would
-	 * need to be evaluated within this join tree (because there's an upper
-	 * reference to a quantity that may go to NULL as a result of an outer
-	 * join), then we can't try to push the join down because we'll fail when
-	 * we get to mongo_build_column_doc().  However, a PlaceHolderVar that
-	 * needs to be evaluated *at the top* of this join tree is OK, because we
-	 * can do that locally after fetching the results from the remote side.
-	 */
-	foreach(lc, root->placeholder_list)
-	{
-		PlaceHolderInfo *phinfo = lfirst(lc);
-		Relids		relids;
-
-		/* PlaceHolderInfo refers to parent relids, not child relids. */
-		relids = IS_OTHER_REL(joinrel) ?
-			joinrel->top_parent_relids : joinrel->relids;
-
-		if (bms_is_subset(phinfo->ph_eval_at, relids) &&
-			bms_nonempty_difference(relids, phinfo->ph_eval_at))
-			return false;
-	}
-
-	/* Save the join clauses, for later use. */
-	fpinfo->joinclauses = joinclauses;
-
-	fpinfo->outerrel = outerrel;
-	fpinfo->innerrel = innerrel;
-	fpinfo->jointype = jointype;
-
-	/*
-	 * Pull the other remote conditions from the joining relations into join
-	 * clauses or other remote clauses (remote_conds) of this relation
-	 * wherever possible. This avoids building subqueries at every join step.
-	 *
-	 * For an inner join, clauses from both the relations are added to the
-	 * other remote clauses. For LEFT and RIGHT OUTER join, the clauses from
-	 * the outer side are added to remote_conds since those can be evaluated
-	 * after the join is evaluated. The clauses from inner side are added to
-	 * the joinclauses, since they need to be evaluated while constructing the
-	 * join.
-	 *
-	 * For a FULL OUTER JOIN, the other clauses from either relation can not
-	 * be added to the joinclauses or remote_conds, since each relation acts
-	 * as an outer relation for the other.
-	 *
-	 * The joining sides can not have local conditions, thus no need to test
-	 * shippability of the clauses being pulled up.
-	 */
-	switch (jointype)
-	{
-		case JOIN_LEFT:
-			fpinfo->joinclauses = list_concat(fpinfo->joinclauses,
-											  fpinfo_i->remote_conds);
-			fpinfo->remote_conds = list_concat(fpinfo->remote_conds,
-											   fpinfo_o->remote_conds);
-			break;
-
-		default:
-			/* Should not happen, we have just checked this above */
-			elog(ERROR, "unsupported join type %d", jointype);
-	}
-
-	/* Mark that this join can be pushed down safely */
-	fpinfo->pushdown_safe = true;
-
-	/*
-	 * Set the relation index.  This is defined as the position of this
-	 * joinrel in the join_rel_list list plus the length of the rtable list.
-	 * Note that since this joinrel is at the end of the join_rel_list list
-	 * when we are called, we can get the position by list_length.
-	 */
-	Assert(fpinfo->relation_index == 0);	/* shouldn't be set yet */
-	fpinfo->relation_index =
-		list_length(root->parse->rtable) + list_length(root->join_rel_list);
-
-	return true;
-}
-
-/*
- * MongoGetForeignJoinPaths
- *		Add possible ForeignPath to joinrel, if join is safe to push down.
+ * mongoGetForeignJoinPaths
+ *		Add possible ForeignPath to joinrel, if the join is safe to push down.
  */
 static void
-MongoGetForeignJoinPaths(PlannerInfo *root,
-							RelOptInfo *joinrel,
-							RelOptInfo *outerrel,
-							RelOptInfo *innerrel,
-							JoinType jointype,
-							JoinPathExtraData *extra)
+mongoGetForeignJoinPaths(PlannerInfo *root, RelOptInfo *joinrel,
+						 RelOptInfo *outerrel, RelOptInfo *innerrel,
+						 JoinType jointype, JoinPathExtraData *extra)
 {
 	MongoFdwRelationInfo *fpinfo;
 	ForeignPath *joinpath;
@@ -3175,7 +3063,228 @@ MongoGetForeignJoinPaths(PlannerInfo *root,
 	/* Add generated path into joinrel by add_path(). */
 	add_path(joinrel, (Path *) joinpath);
 
+	/* XXX Consider pathkeys for the join relation */
+
 	/* XXX Consider parameterized paths for the join relation */
+}
+
+/*
+ * Assess whether the join between inner and outer relations can be pushed down
+ * to the foreign server. As a side effect, save information we obtain in this
+ * function to MongoFdwRelationInfo passed in.
+ */
+static bool
+mongo_foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel, JoinType jointype,
+				RelOptInfo *outerrel, RelOptInfo *innerrel,
+				JoinPathExtraData *extra)
+{
+	MongoFdwRelationInfo *fpinfo;
+	MongoFdwRelationInfo *fpinfo_o;
+	MongoFdwRelationInfo *fpinfo_i;
+	ListCell	*lc;
+	List		*joinclauses;
+	List		*scan_var_list;
+	RangeTblEntry *rte;
+	char	   *colname;
+
+	/* We support pushing down only INNER, LEFT, RIGHT OUTER join */
+	if (jointype != JOIN_INNER && jointype != JOIN_LEFT &&
+		jointype != JOIN_RIGHT)
+		return false;
+
+	fpinfo = (MongoFdwRelationInfo *) joinrel->fdw_private;
+	fpinfo_o = (MongoFdwRelationInfo *) outerrel->fdw_private;
+	fpinfo_i = (MongoFdwRelationInfo *) innerrel->fdw_private;
+
+	/*
+	 * If either of the joining relations is marked as unsafe to pushdown, the
+	 * join can not be pushed down.
+	 */
+	if (!fpinfo_o || !fpinfo_o->pushdown_safe ||
+		!fpinfo_i || !fpinfo_i->pushdown_safe)
+		return false;
+
+	/* If join pushdown is not enabled, honor it. */
+	if ((!IS_JOIN_REL(outerrel) && !fpinfo_o->options->enable_join_pushdown) ||
+		(!IS_JOIN_REL(innerrel) && !fpinfo_i->options->enable_join_pushdown))
+		return false;
+
+	/* Recursive joins can't be pushed down */
+	if (IS_JOIN_REL(outerrel) || IS_JOIN_REL(innerrel))
+		return false;
+
+	/*
+	 * If joining relations have local conditions, those conditions are
+	 * required to be applied before joining the relations. Hence the join can
+	 * not be pushed down.
+	 */
+	if (fpinfo_o->local_conds || fpinfo_i->local_conds)
+		return false;
+
+	scan_var_list = pull_var_clause((Node *) joinrel->reltarget->exprs,
+									PVC_RECURSE_PLACEHOLDERS);
+
+	/*
+	 * In case the whole-row reference is under an outer join, currently mongo_fdw
+	 * can not support to build the bson query document for it, so we can not push
+	 * down.
+	 */
+	foreach(lc, scan_var_list)
+	{
+		Var		   *var = lfirst(lc);
+
+		Assert(IsA(var, Var));
+
+		/* Don't support whole row reference. */
+		if (var->varattno == 0)
+			return false;
+
+		rte = planner_rt_fetch(var->varno, root);
+
+		colname = get_attname(rte->relid, var->varattno, false);
+
+		/* Don't support full document retrieval */
+		if (strcmp("__doc", colname) == 0)
+			return false;
+	}
+
+	/*
+	 * Separate restrict list into join quals and pushed-down (other) quals.
+	 *
+	 * Join quals belonging to an outer join must all be shippable, else we
+	 * cannot execute the join remotely.  Add such quals to 'joinclauses'.
+	 *
+	 * Add other quals to fpinfo->remote_conds if they are shippable, else to
+	 * fpinfo->local_conds.  In an inner join it's okay to execute conditions
+	 * either locally or remotely; the same is true for pushed-down conditions
+	 * at an outer join.
+	 *
+	 * Note we might return failure after having already scribbled on
+	 * fpinfo->remote_conds and fpinfo->local_conds.  That's okay because we
+	 * won't consult those lists again if we deem the join unshippable.
+	 */
+	joinclauses = NIL;
+	foreach(lc, extra->restrictlist)
+	{
+		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
+		bool		is_remote_clause = mongo_is_foreign_expr(root, joinrel,
+															 rinfo->clause);
+
+		if (IS_OUTER_JOIN(jointype) &&
+			!RINFO_IS_PUSHED_DOWN(rinfo, joinrel->relids))
+		{
+			if (!is_remote_clause)
+				return false;
+			joinclauses = lappend(joinclauses, rinfo);
+		}
+		else
+		{
+			if (is_remote_clause && jointype == JOIN_INNER)
+			{
+				/*
+				 * Unlike postgres_fdw, for inner join, don't append the join
+				 * clauses to remote_conds, instead keep the join clauses
+				 * separate.  Currently, we are providing limited operator
+				 * push-ability support for join pushdown, hence we keep those
+				 * clauses separate to avoid INNER JOIN not getting pushdown if
+				 * any of the WHERE clauses are not shippable as per join
+				 * pushdown shippability.
+				 */
+				joinclauses = lappend(joinclauses, rinfo);
+			}
+			else
+				fpinfo->local_conds = lappend(fpinfo->local_conds, rinfo);
+		}
+	}
+
+	/*
+	 * mongo_build_column_doc() isn't smart enough to handle anything other
+	 * than a Var.  In particular, if there's some PlaceHolderVar that would
+	 * need to be evaluated within this join tree (because there's an upper
+	 * reference to a quantity that may go to NULL as a result of an outer
+	 * join), then we can't try to push the join down because we'll fail when
+	 * we get to mongo_build_column_doc().  However, a PlaceHolderVar that
+	 * needs to be evaluated *at the top* of this join tree is OK, because we
+	 * can do that locally after fetching the results from the remote side.
+	 */
+	foreach(lc, root->placeholder_list)
+	{
+		PlaceHolderInfo *phinfo = lfirst(lc);
+		Relids		relids;
+
+		/* PlaceHolderInfo refers to parent relids, not child relids. */
+		relids = IS_OTHER_REL(joinrel) ?
+			joinrel->top_parent_relids : joinrel->relids;
+
+		if (bms_is_subset(phinfo->ph_eval_at, relids) &&
+			bms_nonempty_difference(relids, phinfo->ph_eval_at))
+			return false;
+	}
+
+	/* Save the join clauses, for later use. */
+	fpinfo->joinclauses = joinclauses;
+	fpinfo->outerrel = outerrel;
+	fpinfo->innerrel = innerrel;
+	fpinfo->jointype = jointype;
+	fpinfo->outerrel_oid = fpinfo_o->baserel_oid;
+	fpinfo->innerrel_oid = fpinfo_i->baserel_oid;
+	if (root->query_level > 1 )
+		fpinfo->join_is_sub_query = true;
+	else
+		fpinfo->join_is_sub_query = false;
+
+	/*
+	 * Pull the other remote conditions from the joining relations into join
+	 * clauses or other remote clauses (remote_conds) of this relation
+	 * wherever possible. This avoids building subqueries at every join step.
+	 *
+	 * For an inner join, clauses from both the relations are added to the
+	 * other remote clauses. For LEFT and RIGHT OUTER join, the clauses from
+	 * the outer side are added to remote_conds since those can be evaluated
+	 * after the join is evaluated. The clauses from inner side are added to
+	 * the joinclauses, since they need to be evaluated while constructing the
+	 * join.
+	 *
+	 * For a FULL OUTER JOIN, the other clauses from either relation can not
+	 * be added to the joinclauses or remote_conds, since each relation acts
+	 * as an outer relation for the other.
+	 *
+	 * The joining sides can not have local conditions, thus no need to test
+	 * shippability of the clauses being pulled up.
+	 */
+	switch (jointype)
+	{
+		case JOIN_INNER:
+		case JOIN_LEFT:
+			fpinfo->joinclauses = list_concat(fpinfo->joinclauses,
+											  fpinfo_i->remote_conds);
+			fpinfo->remote_conds = list_concat(fpinfo->remote_conds,
+											   fpinfo_o->remote_conds);
+			break;
+		case JOIN_RIGHT:
+			fpinfo->joinclauses = list_concat(fpinfo->joinclauses,
+											  fpinfo_o->remote_conds);
+			fpinfo->remote_conds = list_concat(fpinfo->remote_conds,
+											   fpinfo_i->remote_conds);
+		default:
+			/* Should not happen, we have just checked this above */
+			elog(ERROR, "unsupported join type %d", jointype);
+	}
+
+	/* Mark that this join can be pushed down safely */
+	fpinfo->pushdown_safe = true;
+
+	/*
+	 * Set the relation index.  This is defined as the position of this
+	 * joinrel in the join_rel_list list plus the length of the rtable list.
+	 * Note that since this joinrel is at the end of the join_rel_list list
+	 * when we are called, we can get the position by list_length.
+	 */
+	Assert(fpinfo->relation_index == 0);	/* shouldn't be set yet */
+	fpinfo->relation_index =
+		list_length(root->parse->rtable) + list_length(root->join_rel_list);
+
+	return true;
 }
 
 /*
@@ -3558,8 +3667,13 @@ mongo_add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 	 * Build the fdw_private list that will be used by MongoGetForeignPlan.
 	 * Items in the list must match order in enum FdwPathPrivateIndex.
 	 */
+#if PG_VERSION_NUM >= 150000
+	fdw_private = list_make2(makeBoolean(false),
+							 makeBoolean(extra->limit_needed));
+#else
 	fdw_private = list_make2(makeInteger(false),
 							 makeInteger(extra->limit_needed));
+#endif
 
 	/*
 	 * Create foreign final path; this gets rid of a no-longer-needed outer
@@ -3580,12 +3694,12 @@ mongo_add_foreign_final_paths(PlannerInfo *root, RelOptInfo *input_rel,
 }
 
 /*
- * MongoGetForeignUpperPaths
+ * mongoGetForeignUpperPaths
  *		Add paths for post-join operations like aggregation, grouping etc. if
  *		corresponding operations are safe to push down.
  */
 static void
-MongoGetForeignUpperPaths(PlannerInfo *root, UpperRelationKind stage,
+mongoGetForeignUpperPaths(PlannerInfo *root, UpperRelationKind stage,
 						  RelOptInfo *input_rel, RelOptInfo *output_rel,
 						  void *extra)
 {
@@ -3664,6 +3778,14 @@ mongo_set_transmission_modes(void)
 								 PGC_USERSET, PGC_S_SESSION,
 								 GUC_ACTION_SAVE, true, 0, false);
 
+	/*
+	 * In addition force restrictive search_path, in case there are any
+	 * regproc or similar constants to be printed.
+	 */
+	(void) set_config_option("search_path", "pg_catalog",
+							 PGC_USERSET, PGC_S_SESSION,
+							 GUC_ACTION_SAVE, true, 0, false);
+
 	return nestlevel;
 }
 
@@ -3694,6 +3816,7 @@ static void mongo_get_join_planner_info(RelOptInfo *scanrel, MongoPlanerInfo *pl
 	if (IS_SIMPLE_REL(outerrel))
 	{
 		join_info->outerrel_relid = outerrel->relid;
+		join_info->outerrel_oid = f_joininfo->outerrel_oid;
 	}
 	else if (IS_JOIN_REL(outerrel))
 	{
@@ -3703,6 +3826,7 @@ static void mongo_get_join_planner_info(RelOptInfo *scanrel, MongoPlanerInfo *pl
 	if (IS_SIMPLE_REL(innerrel))
 	{
 		join_info->innerrel_relid = innerrel->relid;
+		join_info->innerrel_oid = f_joininfo->innerrel_oid;
 	}
 	else if (IS_JOIN_REL(innerrel))
 	{
@@ -3710,7 +3834,10 @@ static void mongo_get_join_planner_info(RelOptInfo *scanrel, MongoPlanerInfo *pl
 	}
 
 	if (IS_JOIN_REL(scanrel))
+	{
 		join_info->joinclauses = f_joininfo->joinclauses;
+		join_info->join_is_sub_query = f_joininfo->join_is_sub_query;
+	}
 
 	plannerInfo->joininfo_list = lappend(plannerInfo->joininfo_list, join_info);
 }

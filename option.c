@@ -4,7 +4,7 @@
  * 		FDW option handling for mongo_fdw
  *
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
- * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
+ * Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
  * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
@@ -81,23 +81,28 @@ mongo_fdw_validator(PG_FUNCTION_ARGS)
 		/* If port option is given, error out if its value isn't an integer */
 		if (strncmp(optionName, OPTION_NAME_PORT, NAMEDATALEN) == 0)
 		{
-			int32 		port;
+			long 		port;
+			char	   *intString = defGetString(optionDef);
+			char	   *endp;
 
-			port = pg_atoi(defGetString(optionDef), sizeof(int32), 0);
+			port = strtol(intString, &endp, 10);
 			if (port < 0 || port > USHRT_MAX)
 				ereport(ERROR,
 						(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-						 errmsg("port value \"%d\" is out of range for type %s",
-								port, "unsigned short")));
+						 errmsg("port value \"%s\" is out of range for type %s",
+								intString, "unsigned short")));
 		}
+		else if (strcmp(optionName, OPTION_NAME_USE_REMOTE_ESTIMATE) == 0
+				 || strcmp(optionName, OPTION_NAME_ENABLE_JOIN_PUSHDOWN) == 0
 #ifdef META_DRIVER
-		else if (strcmp(optionName, OPTION_NAME_SSL) == 0 ||
-				 strcmp(optionName, OPTION_NAME_WEAK_CERT) == 0)
+				 || strcmp(optionName, OPTION_NAME_WEAK_CERT) == 0 ||
+				 strcmp(optionName, OPTION_NAME_SSL) == 0
+#endif
+				 )
 		{
 			/* These accept only boolean values */
 			(void) defGetBoolean(optionDef);
 		}
-#endif
 	}
 
 	PG_RETURN_VOID();
@@ -157,12 +162,14 @@ mongo_get_options(Oid foreignTableId)
 	foreignServer = GetForeignServer(foreignTable->serverid);
 	mapping = GetUserMapping(GetUserId(), foreignTable->serverid);
 
-	optionList = list_concat(optionList, foreignTable->options);
-	optionList = list_concat(optionList, foreignServer->options);
-	optionList = list_concat(optionList, mapping->options);
+	optionList = mongo_list_concat(optionList, foreignServer->options);
+	optionList = mongo_list_concat(optionList, foreignTable->options);
+	optionList = mongo_list_concat(optionList, mapping->options);
 
 	options = (MongoFdwOptions *) palloc0(sizeof(MongoFdwOptions));
 
+	options->use_remote_estimate = false;
+	options->enable_join_pushdown = true;
 #ifdef META_DRIVER
 	options->ssl = false;
 	options->weak_cert_validation = false;
@@ -219,11 +226,20 @@ mongo_get_options(Oid foreignTableId)
 		else if (strcmp(def->defname, OPTION_NAME_COLLECTION) == 0)
 			options->collectionName = defGetString(def);
 
+		else if (strcmp(def->defname, OPTION_NAME_COLUMN_NAME) == 0)
+			options->column_name = defGetString(def);
+
 		else if (strcmp(def->defname, OPTION_NAME_USERNAME) == 0)
 			options->svr_username = defGetString(def);
 
 		else if (strcmp(def->defname, OPTION_NAME_PASSWORD) == 0)
 			options->svr_password = defGetString(def);
+
+		else if (strcmp(def->defname, OPTION_NAME_USE_REMOTE_ESTIMATE) == 0)
+			options->use_remote_estimate = defGetBoolean(def);
+
+		else if (strcmp(def->defname, OPTION_NAME_ENABLE_JOIN_PUSHDOWN) == 0)
+			options->enable_join_pushdown = defGetBoolean(def);
 	}
 
 	/* Default values, if required */

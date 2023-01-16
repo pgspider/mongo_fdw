@@ -1,0 +1,1937 @@
+-- \set MONGO_HOST			`echo \'"$MONGO_HOST"\'`
+-- \set MONGO_PORT			`echo \'"$MONGO_PORT"\'`
+-- \set MONGO_USER_NAME	`echo \'"$MONGO_USER_NAME"\'`
+-- \set MONGO_PASS			`echo \'"$MONGO_PWD"\'` 
+-- Before running this file User must create database mongo_fdw_regress on
+-- MongoDB with all permission for 'edb' user with 'edb' password and ran
+-- mongodb_init.sh file to load collections.
+\c contrib_regression
+\set ECHO none
+--Testcase 1:
+SET datestyle TO ISO;
+--Testcase 2:
+CREATE EXTENSION IF NOT EXISTS mongo_fdw;
+--Testcase 3:
+CREATE SERVER mongo_server FOREIGN DATA WRAPPER mongo_fdw
+  OPTIONS (address :MONGO_HOST, port :MONGO_PORT);
+--Testcase 4:
+CREATE USER MAPPING FOR public SERVER mongo_server;
+--Testcase 5:
+CREATE SERVER mongo_server1 FOREIGN DATA WRAPPER mongo_fdw
+  OPTIONS (address :MONGO_HOST, port :MONGO_PORT);
+--Testcase 6:
+CREATE USER MAPPING FOR public SERVER mongo_server1;
+-- Create foreign tables.
+--Testcase 7:
+CREATE FOREIGN TABLE f_test_tbl1 (_id NAME, c1 INTEGER, c2 TEXT, c3 CHAR(9), c4 INTEGER, c5 pg_catalog.Date, c6 DECIMAL, c7 INTEGER, c8 INTEGER)
+  SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'test_tbl1');
+--Testcase 8:
+CREATE FOREIGN TABLE f_test_tbl2 (_id NAME, c1 INTEGER, c2 TEXT, c3 TEXT)
+  SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'test_tbl2');
+--Testcase 9:
+CREATE FOREIGN TABLE f_test_tbl3 (_id NAME, c1 INTEGER, c2 TEXT, c3 TEXT)
+  SERVER mongo_server1 OPTIONS (database 'mongo_fdw_regress', collection 'test_tbl2');
+--Testcase 10:
+CREATE FOREIGN TABLE test_text ( __doc text)
+  SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'warehouse');
+--Testcase 11:
+CREATE FOREIGN TABLE test_varchar ( __doc varchar)
+  SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'warehouse');
+--Testcase 12:
+CREATE FOREIGN TABLE f_test_tbl4 (_id NAME, c1 INTEGER, c2 TEXT, c3 CHAR(9), c4 INTEGER, c5 pg_catalog.Date, c6 DECIMAL, c7 INTEGER, c8 INTEGER)
+  SERVER mongo_server1 OPTIONS (database 'mongo_fdw_regress', collection 'test_tbl1');
+--Testcase 13:
+INSERT INTO f_test_tbl1 VALUES (0, 1500, 'EMP15', 'FINANCE', 1300, '2000-12-25', 950.0, 400, 60);
+--Testcase 14:
+INSERT INTO f_test_tbl1 VALUES (0, 1600, 'EMP16', 'ADMIN', 600);
+--Testcase 15:
+INSERT INTO f_test_tbl2 VALUES (0, 50, 'TESTING', 'NASHIK');
+--Testcase 16:
+INSERT INTO f_test_tbl2 VALUES (0);
+-- Create local table.
+--Testcase 17:
+CREATE TABLE l_test_tbl1 AS
+  SELECT c1, c2, c3, c4, c5, c6, c7, c8 FROM f_test_tbl1;
+-- Push down LEFT OUTER JOIN.
+--Testcase 18:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 19:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT    |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT    | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+ 20 | ADMINISTRATION |  400 | EMP4  |    2975 | 20
+ 20 | ADMINISTRATION |  800 | EMP8  |    3000 | 20
+ 20 | ADMINISTRATION | 1100 | EMP11 |    1100 | 20
+ 20 | ADMINISTRATION | 1300 | EMP13 |    3000 | 20
+ 30 | SALES          |  200 | EMP2  |    1600 | 30
+ 30 | SALES          |  300 | EMP3  |    1250 | 30
+ 30 | SALES          |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES          |  600 | EMP6  |    2850 | 30
+ 30 | SALES          | 1000 | EMP10 |    1500 | 30
+ 30 | SALES          | 1200 | EMP12 |     950 | 30
+ 40 | HR             |      |       |         |   
+ 50 | TESTING        |      |       |         |   
+    |                |      |       |         |   
+(17 rows)
+
+--Testcase 20:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl1 e LEFT OUTER JOIN f_test_tbl2 d ON d.c1 = e.c8 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(4 rows)
+
+--Testcase 21:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl1 e LEFT OUTER JOIN f_test_tbl2 d ON e.c8 = d.c1 ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT    |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT    | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+ 20 | ADMINISTRATION |  400 | EMP4  |    2975 | 20
+ 20 | ADMINISTRATION |  800 | EMP8  |    3000 | 20
+ 20 | ADMINISTRATION | 1100 | EMP11 |    1100 | 20
+ 20 | ADMINISTRATION | 1300 | EMP13 |    3000 | 20
+ 30 | SALES          |  200 | EMP2  |    1600 | 30
+ 30 | SALES          |  300 | EMP3  |    1250 | 30
+ 30 | SALES          |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES          |  600 | EMP6  |    2850 | 30
+ 30 | SALES          | 1000 | EMP10 |    1500 | 30
+ 30 | SALES          | 1200 | EMP12 |     950 | 30
+    |                | 1500 | EMP15 |     950 | 60
+    |                | 1600 | EMP16 |         |   
+(16 rows)
+
+--Testcase 22:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND e.c4 > d.c1 OR e.c2 < d.c3) ORDER BY 1, 3 OFFSET 50;
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1, e.c1
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(5 rows)
+
+--Testcase 23:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND e.c4 > d.c1 OR e.c2 < d.c3) ORDER BY 1, 3 OFFSET 50;
+ c1 |   c2    |  c1  |  c2   |   c6    | c8 
+----+---------+------+-------+---------+----
+ 40 | HR      | 1400 | EMP14 |    1300 | 10
+ 40 | HR      | 1500 | EMP15 |     950 | 60
+ 40 | HR      | 1600 | EMP16 |         |   
+ 50 | TESTING |  100 | EMP1  |   800.3 | 20
+ 50 | TESTING |  200 | EMP2  |    1600 | 30
+ 50 | TESTING |  300 | EMP3  |    1250 | 30
+ 50 | TESTING |  400 | EMP4  |    2975 | 20
+ 50 | TESTING |  500 | EMP5  | 1250.23 | 30
+ 50 | TESTING |  600 | EMP6  |    2850 | 30
+ 50 | TESTING |  700 | EMP7  | 2450.34 | 10
+ 50 | TESTING |  800 | EMP8  |    3000 | 20
+ 50 | TESTING |  900 | EMP9  |    5000 | 10
+ 50 | TESTING | 1000 | EMP10 |    1500 | 30
+ 50 | TESTING | 1100 | EMP11 |    1100 | 20
+ 50 | TESTING | 1200 | EMP12 |     950 | 30
+ 50 | TESTING | 1300 | EMP13 |    3000 | 20
+ 50 | TESTING | 1400 | EMP14 |    1300 | 10
+ 50 | TESTING | 1500 | EMP15 |     950 | 60
+ 50 | TESTING | 1600 | EMP16 |         |   
+    |         |      |       |         |   
+(20 rows)
+
+--Testcase 24:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND e.c4 > d.c1 AND e.c2 < d.c3) ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 25:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND e.c4 > d.c1 AND e.c2 < d.c3) ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT    | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION |      |       |         |   
+ 30 | SALES          |  200 | EMP2  |    1600 | 30
+ 30 | SALES          |  300 | EMP3  |    1250 | 30
+ 30 | SALES          |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES          |  600 | EMP6  |    2850 | 30
+ 30 | SALES          | 1000 | EMP10 |    1500 | 30
+ 30 | SALES          | 1200 | EMP12 |     950 | 30
+ 40 | HR             |      |       |         |   
+ 50 | TESTING        |      |       |         |   
+    |                |      |       |         |   
+(12 rows)
+
+-- Column comparing with 'Constant' pushed down.
+--Testcase 26:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON d.c1 = 20 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 27:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON d.c1 = 20 ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |      |       |         |   
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+ 20 | ADMINISTRATION |  200 | EMP2  |    1600 | 30
+ 20 | ADMINISTRATION |  300 | EMP3  |    1250 | 30
+ 20 | ADMINISTRATION |  400 | EMP4  |    2975 | 20
+ 20 | ADMINISTRATION |  500 | EMP5  | 1250.23 | 30
+ 20 | ADMINISTRATION |  600 | EMP6  |    2850 | 30
+ 20 | ADMINISTRATION |  700 | EMP7  | 2450.34 | 10
+ 20 | ADMINISTRATION |  800 | EMP8  |    3000 | 20
+ 20 | ADMINISTRATION |  900 | EMP9  |    5000 | 10
+ 20 | ADMINISTRATION | 1000 | EMP10 |    1500 | 30
+ 20 | ADMINISTRATION | 1100 | EMP11 |    1100 | 20
+ 20 | ADMINISTRATION | 1200 | EMP12 |     950 | 30
+ 20 | ADMINISTRATION | 1300 | EMP13 |    3000 | 20
+ 20 | ADMINISTRATION | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION | 1500 | EMP15 |     950 | 60
+ 20 | ADMINISTRATION | 1600 | EMP16 |         |   
+ 30 | SALES          |      |       |         |   
+ 40 | HR             |      |       |         |   
+ 50 | TESTING        |      |       |         |   
+    |                |      |       |         |   
+(21 rows)
+
+-- Push down RIGHT OUTER JOIN.
+--Testcase 28:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(4 rows)
+
+--Testcase 29:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT    |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT    | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+ 20 | ADMINISTRATION |  400 | EMP4  |    2975 | 20
+ 20 | ADMINISTRATION |  800 | EMP8  |    3000 | 20
+ 20 | ADMINISTRATION | 1100 | EMP11 |    1100 | 20
+ 20 | ADMINISTRATION | 1300 | EMP13 |    3000 | 20
+ 30 | SALES          |  200 | EMP2  |    1600 | 30
+ 30 | SALES          |  300 | EMP3  |    1250 | 30
+ 30 | SALES          |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES          |  600 | EMP6  |    2850 | 30
+ 30 | SALES          | 1000 | EMP10 |    1500 | 30
+ 30 | SALES          | 1200 | EMP12 |     950 | 30
+    |                | 1500 | EMP15 |     950 | 60
+    |                | 1600 | EMP16 |         |   
+(16 rows)
+
+--Testcase 30:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl1 e RIGHT OUTER JOIN f_test_tbl2 d ON e.c8 = d.c1 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 31:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl1 e RIGHT OUTER JOIN f_test_tbl2 d ON e.c8 = d.c1 ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT    |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT    | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+ 20 | ADMINISTRATION |  400 | EMP4  |    2975 | 20
+ 20 | ADMINISTRATION |  800 | EMP8  |    3000 | 20
+ 20 | ADMINISTRATION | 1100 | EMP11 |    1100 | 20
+ 20 | ADMINISTRATION | 1300 | EMP13 |    3000 | 20
+ 30 | SALES          |  200 | EMP2  |    1600 | 30
+ 30 | SALES          |  300 | EMP3  |    1250 | 30
+ 30 | SALES          |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES          |  600 | EMP6  |    2850 | 30
+ 30 | SALES          | 1000 | EMP10 |    1500 | 30
+ 30 | SALES          | 1200 | EMP12 |     950 | 30
+ 40 | HR             |      |       |         |   
+ 50 | TESTING        |      |       |         |   
+    |                |      |       |         |   
+(17 rows)
+
+--Testcase 32:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON (d.c1 = e.c8 OR e.c4 > d.c1 OR e.c2 < d.c3) ORDER BY 1, 3 OFFSET 60;
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1, e.c1
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(5 rows)
+
+--Testcase 33:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON (d.c1 = e.c8 OR e.c4 > d.c1 OR e.c2 < d.c3) ORDER BY 1, 3 OFFSET 60;
+ c1 |   c2    |  c1  |  c2   |   c6    | c8 
+----+---------+------+-------+---------+----
+ 40 | HR      | 1400 | EMP14 |    1300 | 10
+ 40 | HR      | 1500 | EMP15 |     950 | 60
+ 40 | HR      | 1600 | EMP16 |         |   
+ 50 | TESTING |  100 | EMP1  |   800.3 | 20
+ 50 | TESTING |  200 | EMP2  |    1600 | 30
+ 50 | TESTING |  300 | EMP3  |    1250 | 30
+ 50 | TESTING |  400 | EMP4  |    2975 | 20
+ 50 | TESTING |  500 | EMP5  | 1250.23 | 30
+ 50 | TESTING |  600 | EMP6  |    2850 | 30
+ 50 | TESTING |  700 | EMP7  | 2450.34 | 10
+ 50 | TESTING |  800 | EMP8  |    3000 | 20
+ 50 | TESTING |  900 | EMP9  |    5000 | 10
+ 50 | TESTING | 1000 | EMP10 |    1500 | 30
+ 50 | TESTING | 1100 | EMP11 |    1100 | 20
+ 50 | TESTING | 1200 | EMP12 |     950 | 30
+ 50 | TESTING | 1300 | EMP13 |    3000 | 20
+ 50 | TESTING | 1400 | EMP14 |    1300 | 10
+ 50 | TESTING | 1500 | EMP15 |     950 | 60
+ 50 | TESTING | 1600 | EMP16 |         |   
+(19 rows)
+
+--Testcase 34:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON ((d.c1 = e.c8 OR e.c4 > d.c1) AND e.c2 < d.c3) ORDER BY 1, 3 OFFSET 60;
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1, e.c1
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(5 rows)
+
+--Testcase 35:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON ((d.c1 = e.c8 OR e.c4 > d.c1) OR e.c2 < d.c3) ORDER BY 1, 3 OFFSET 60;
+ c1 |   c2    |  c1  |  c2   |   c6    | c8 
+----+---------+------+-------+---------+----
+ 40 | HR      | 1400 | EMP14 |    1300 | 10
+ 40 | HR      | 1500 | EMP15 |     950 | 60
+ 40 | HR      | 1600 | EMP16 |         |   
+ 50 | TESTING |  100 | EMP1  |   800.3 | 20
+ 50 | TESTING |  200 | EMP2  |    1600 | 30
+ 50 | TESTING |  300 | EMP3  |    1250 | 30
+ 50 | TESTING |  400 | EMP4  |    2975 | 20
+ 50 | TESTING |  500 | EMP5  | 1250.23 | 30
+ 50 | TESTING |  600 | EMP6  |    2850 | 30
+ 50 | TESTING |  700 | EMP7  | 2450.34 | 10
+ 50 | TESTING |  800 | EMP8  |    3000 | 20
+ 50 | TESTING |  900 | EMP9  |    5000 | 10
+ 50 | TESTING | 1000 | EMP10 |    1500 | 30
+ 50 | TESTING | 1100 | EMP11 |    1100 | 20
+ 50 | TESTING | 1200 | EMP12 |     950 | 30
+ 50 | TESTING | 1300 | EMP13 |    3000 | 20
+ 50 | TESTING | 1400 | EMP14 |    1300 | 10
+ 50 | TESTING | 1500 | EMP15 |     950 | 60
+ 50 | TESTING | 1600 | EMP16 |         |   
+    |         |      |       |         |   
+(20 rows)
+
+-- Column comparing with 'Constant' pushed down.
+--Testcase 36:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON d.c1 = 20 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(4 rows)
+
+--Testcase 37:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON (d.c1 = 20 AND e.c2 = 'EMP1')  ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+    |                |  200 | EMP2  |    1600 | 30
+    |                |  300 | EMP3  |    1250 | 30
+    |                |  400 | EMP4  |    2975 | 20
+    |                |  500 | EMP5  | 1250.23 | 30
+    |                |  600 | EMP6  |    2850 | 30
+    |                |  700 | EMP7  | 2450.34 | 10
+    |                |  800 | EMP8  |    3000 | 20
+    |                |  900 | EMP9  |    5000 | 10
+    |                | 1000 | EMP10 |    1500 | 30
+    |                | 1100 | EMP11 |    1100 | 20
+    |                | 1200 | EMP12 |     950 | 30
+    |                | 1300 | EMP13 |    3000 | 20
+    |                | 1400 | EMP14 |    1300 | 10
+    |                | 1500 | EMP15 |     950 | 60
+    |                | 1600 | EMP16 |         |   
+(16 rows)
+
+-- Push INNER JOIN.
+--Testcase 38:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 39:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT    |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT    | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+ 20 | ADMINISTRATION |  400 | EMP4  |    2975 | 20
+ 20 | ADMINISTRATION |  800 | EMP8  |    3000 | 20
+ 20 | ADMINISTRATION | 1100 | EMP11 |    1100 | 20
+ 20 | ADMINISTRATION | 1300 | EMP13 |    3000 | 20
+ 30 | SALES          |  200 | EMP2  |    1600 | 30
+ 30 | SALES          |  300 | EMP3  |    1250 | 30
+ 30 | SALES          |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES          |  600 | EMP6  |    2850 | 30
+ 30 | SALES          | 1000 | EMP10 |    1500 | 30
+ 30 | SALES          | 1200 | EMP12 |     950 | 30
+(14 rows)
+
+--Testcase 40:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON ((d.c1 = e.c8 OR e.c4 > d.c1) AND e.c2 < d.c3) ORDER BY 1, 3 OFFSET 60;
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1, e.c1
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(5 rows)
+
+--Testcase 41:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON ((d.c1 = e.c8 OR e.c4 > d.c1) OR e.c2 < d.c3) ORDER BY 1, 3 OFFSET 60;
+ c1 |   c2    |  c1  |  c2   |   c6    | c8 
+----+---------+------+-------+---------+----
+ 40 | HR      | 1400 | EMP14 |    1300 | 10
+ 40 | HR      | 1500 | EMP15 |     950 | 60
+ 40 | HR      | 1600 | EMP16 |         |   
+ 50 | TESTING |  100 | EMP1  |   800.3 | 20
+ 50 | TESTING |  200 | EMP2  |    1600 | 30
+ 50 | TESTING |  300 | EMP3  |    1250 | 30
+ 50 | TESTING |  400 | EMP4  |    2975 | 20
+ 50 | TESTING |  500 | EMP5  | 1250.23 | 30
+ 50 | TESTING |  600 | EMP6  |    2850 | 30
+ 50 | TESTING |  700 | EMP7  | 2450.34 | 10
+ 50 | TESTING |  800 | EMP8  |    3000 | 20
+ 50 | TESTING |  900 | EMP9  |    5000 | 10
+ 50 | TESTING | 1000 | EMP10 |    1500 | 30
+ 50 | TESTING | 1100 | EMP11 |    1100 | 20
+ 50 | TESTING | 1200 | EMP12 |     950 | 30
+ 50 | TESTING | 1300 | EMP13 |    3000 | 20
+ 50 | TESTING | 1400 | EMP14 |    1300 | 10
+ 50 | TESTING | 1500 | EMP15 |     950 | 60
+ 50 | TESTING | 1600 | EMP16 |         |   
+(19 rows)
+
+--Testcase 42:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON (d.c1 = e.c8 OR e.c2 < d.c3) ORDER BY 1, 3 OFFSET 60;
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1, e.c1
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(5 rows)
+
+--Testcase 43:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON (d.c1 = e.c8 OR e.c2 < d.c3) ORDER BY 1, 3 OFFSET 60;
+ c1 |   c2    |  c1  |  c2   |  c6  | c8 
+----+---------+------+-------+------+----
+ 50 | TESTING |  800 | EMP8  | 3000 | 20
+ 50 | TESTING |  900 | EMP9  | 5000 | 10
+ 50 | TESTING | 1000 | EMP10 | 1500 | 30
+ 50 | TESTING | 1100 | EMP11 | 1100 | 20
+ 50 | TESTING | 1200 | EMP12 |  950 | 30
+ 50 | TESTING | 1300 | EMP13 | 3000 | 20
+ 50 | TESTING | 1400 | EMP14 | 1300 | 10
+ 50 | TESTING | 1500 | EMP15 |  950 | 60
+ 50 | TESTING | 1600 | EMP16 |      |   
+(9 rows)
+
+-- Column comparing with 'Constant' pushed down.
+--Testcase 44:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND d.c1 = 20 OR e.c2 = 'EMP1') ORDER BY 1, 3;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 45:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND d.c1 = 20 OR e.c2 = 'EMP1')  ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |  c6   | c8 
+----+----------------+------+-------+-------+----
+ 10 | DEVELOPMENT    |  100 | EMP1  | 800.3 | 20
+ 20 | ADMINISTRATION |  100 | EMP1  | 800.3 | 20
+ 20 | ADMINISTRATION |  400 | EMP4  |  2975 | 20
+ 20 | ADMINISTRATION |  800 | EMP8  |  3000 | 20
+ 20 | ADMINISTRATION | 1100 | EMP11 |  1100 | 20
+ 20 | ADMINISTRATION | 1300 | EMP13 |  3000 | 20
+ 30 | SALES          |  100 | EMP1  | 800.3 | 20
+ 40 | HR             |  100 | EMP1  | 800.3 | 20
+ 50 | TESTING        |  100 | EMP1  | 800.3 | 20
+    |                |  100 | EMP1  | 800.3 | 20
+(10 rows)
+
+-- INNER JOIN with WHERE clause.  Should execute where condition separately
+-- (NOT added into join clauses) on remote side.
+--Testcase 46:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, e.c1
+  FROM f_test_tbl1 d JOIN f_test_tbl2 e ON (d.c8 = e.c1) WHERE d.c1 = 100 ORDER BY e.c3, d.c1;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: e.c3
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) INNER JOIN (mongo_fdw_regress.test_tbl2)
+(4 rows)
+
+--Testcase 47:
+SELECT d.c1, e.c1
+  FROM f_test_tbl1 d JOIN f_test_tbl2 e ON (d.c8 = e.c1) WHERE d.c1 = 100 ORDER BY e.c3, d.c1;
+ c1  | c1 
+-----+----
+ 100 | 20
+(1 row)
+
+-- INNER JOIN in which join clause is not pushable but WHERE condition is
+-- pushable with join clause 'TRUE'.
+--Testcase 48:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, e.c1
+  FROM f_test_tbl1 d JOIN f_test_tbl2 e ON (abs(d.c8) = e.c1) WHERE d.c1 = 100 ORDER BY e.c3, d.c1;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: e.c3
+   ->  Foreign Scan
+         Filter: (abs(c8) = c1)
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) INNER JOIN (mongo_fdw_regress.test_tbl2)
+(5 rows)
+
+--Testcase 49:
+SELECT d.c1, e.c1
+  FROM f_test_tbl1 d JOIN f_test_tbl2 e ON (abs(d.c8) = e.c1) WHERE d.c1 = 100 ORDER BY e.c3, d.c1;
+ c1  | c1 
+-----+----
+ 100 | 20
+(1 row)
+
+-- Local-Foreign table joins.
+--Testcase 50:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN l_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                             QUERY PLAN                             
+--------------------------------------------------------------------
+ Incremental Sort
+   Sort Key: d.c1, e.c1
+   Presorted Key: d.c1
+   ->  Merge Left Join
+         Merge Cond: (d.c1 = e.c8)
+         ->  Sort
+               Sort Key: d.c1
+               ->  Foreign Scan on f_test_tbl2 d
+                     Foreign Namespace: mongo_fdw_regress.test_tbl2
+         ->  Sort
+               Sort Key: e.c8
+               ->  Seq Scan on l_test_tbl1 e
+(12 rows)
+
+--Testcase 51:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN l_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT    |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT    | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+ 20 | ADMINISTRATION |  400 | EMP4  |    2975 | 20
+ 20 | ADMINISTRATION |  800 | EMP8  |    3000 | 20
+ 20 | ADMINISTRATION | 1100 | EMP11 |    1100 | 20
+ 20 | ADMINISTRATION | 1300 | EMP13 |    3000 | 20
+ 30 | SALES          |  200 | EMP2  |    1600 | 30
+ 30 | SALES          |  300 | EMP3  |    1250 | 30
+ 30 | SALES          |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES          |  600 | EMP6  |    2850 | 30
+ 30 | SALES          | 1000 | EMP10 |    1500 | 30
+ 30 | SALES          | 1200 | EMP12 |     950 | 30
+ 40 | HR             |      |       |         |   
+ 50 | TESTING        |      |       |         |   
+    |                |      |       |         |   
+(17 rows)
+
+-- JOIN in sub-query, should be pushed down.
+--Testcase 52:
+EXPLAIN (COSTS OFF)
+SELECT l.c1, l.c6, l.c8
+  FROM l_test_tbl1 l
+    WHERE l.c1 IN (SELECT f1.c1 FROM f_test_tbl1 f1 LEFT JOIN f_test_tbl2 f2 ON (f1.c8 = f2.c1)) ORDER BY 1, 3;
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: l.c1, l.c8
+   ->  Hash Semi Join
+         Hash Cond: (l.c1 = f1.c1)
+         ->  Seq Scan on l_test_tbl1 l
+         ->  Hash
+               ->  Foreign Scan
+                     Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(8 rows)
+
+--Testcase 53:
+SELECT l.c1, l.c6, l.c8
+  FROM l_test_tbl1 l
+    WHERE l.c1 IN (SELECT f1.c1 FROM f_test_tbl1 f1 LEFT JOIN f_test_tbl2 f2 ON (f1.c8 = f2.c1)) ORDER BY 1, 3;
+  c1  |   c6    | c8 
+------+---------+----
+  100 |   800.3 | 20
+  200 |    1600 | 30
+  300 |    1250 | 30
+  400 |    2975 | 20
+  500 | 1250.23 | 30
+  600 |    2850 | 30
+  700 | 2450.34 | 10
+  800 |    3000 | 20
+  900 |    5000 | 10
+ 1000 |    1500 | 30
+ 1100 |    1100 | 20
+ 1200 |     950 | 30
+ 1300 |    3000 | 20
+ 1400 |    1300 | 10
+ 1500 |     950 | 60
+ 1600 |         |   
+(16 rows)
+
+--Testcase 54:
+SET enable_hashjoin TO OFF;
+--Testcase 55:
+SET enable_nestloop TO OFF;
+--Testcase 56:
+EXPLAIN (COSTS OFF)
+SELECT l.c1, l.c6, l.c8
+  FROM l_test_tbl1 l
+    WHERE l.c1 = (SELECT f1.c1 FROM f_test_tbl1 f1 LEFT JOIN f_test_tbl2 f2 ON (f1.c8 = f2.c1) LIMIT 1) ORDER BY 1, 3;
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: l.c8
+   InitPlan 1 (returns $0)
+     ->  Foreign Scan
+           Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+   ->  Seq Scan on l_test_tbl1 l
+         Filter: (c1 = $0)
+(7 rows)
+
+--Testcase 57:
+SELECT l.c1, l.c6, l.c8
+  FROM l_test_tbl1 l
+    WHERE l.c1 = (SELECT f1.c1 FROM f_test_tbl1 f1 LEFT JOIN f_test_tbl2 f2 ON (f1.c8 = f2.c1) LIMIT 1) ORDER BY 1, 3;
+ c1  |  c6   | c8 
+-----+-------+----
+ 100 | 800.3 | 20
+(1 row)
+
+--Testcase 58:
+EXPLAIN (COSTS OFF)
+SELECT l.c1, l.c6, l.c8
+  FROM l_test_tbl1 l
+    WHERE l.c1 = (SELECT f1.c1 FROM f_test_tbl1 f1 INNER JOIN f_test_tbl2 f2 ON (f1.c8 = f2.c1) LIMIT 1) ORDER BY 1, 3;
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: l.c8
+   InitPlan 1 (returns $0)
+     ->  Foreign Scan
+           Foreign Namespace: (mongo_fdw_regress.test_tbl1) INNER JOIN (mongo_fdw_regress.test_tbl2)
+   ->  Seq Scan on l_test_tbl1 l
+         Filter: (c1 = $0)
+(7 rows)
+
+--Testcase 59:
+SELECT l.c1, l.c6, l.c8
+  FROM l_test_tbl1 l
+    WHERE l.c1 = (SELECT f1.c1 FROM f_test_tbl1 f1 INNER JOIN f_test_tbl2 f2 ON (f1.c8 = f2.c1) LIMIT 1) ORDER BY 1, 3;
+ c1  |  c6   | c8 
+-----+-------+----
+ 100 | 800.3 | 20
+(1 row)
+
+--Testcase 60:
+RESET enable_hashjoin;
+--Testcase 61:
+RESET enable_nestloop;
+-- Execute JOIN through PREPARE statement.
+--Testcase 62:
+PREPARE pre_stmt_left_join AS
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON (d.c1 = e.c8 OR e.c4 > d.c1) ORDER BY 1, 3 OFFSET 70;
+--Testcase 63:
+EXPLAIN (COSTS OFF)
+EXECUTE pre_stmt_left_join;
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1, e.c1
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(5 rows)
+
+--Testcase 64:
+EXECUTE pre_stmt_left_join;
+ c1 |   c2    |  c1  |  c2   |  c6  | c8 
+----+---------+------+-------+------+----
+ 50 | TESTING | 1100 | EMP11 | 1100 | 20
+ 50 | TESTING | 1200 | EMP12 |  950 | 30
+ 50 | TESTING | 1300 | EMP13 | 3000 | 20
+ 50 | TESTING | 1400 | EMP14 | 1300 | 10
+ 50 | TESTING | 1500 | EMP15 |  950 | 60
+ 50 | TESTING | 1600 | EMP16 |      |   
+    |         |      |       |      |   
+(7 rows)
+
+--Testcase 65:
+PREPARE pre_stmt_inner_join AS
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON (d.c1 = e.c8 OR e.c4 > d.c1) ORDER BY 1, 3 OFFSET 70;
+--Testcase 66:
+EXPLAIN (COSTS OFF)
+EXECUTE pre_stmt_inner_join;
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1, e.c1
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(5 rows)
+
+--Testcase 67:
+EXECUTE pre_stmt_inner_join;
+ c1 |   c2    |  c1  |  c2   |  c6  | c8 
+----+---------+------+-------+------+----
+ 50 | TESTING | 1100 | EMP11 | 1100 | 20
+ 50 | TESTING | 1200 | EMP12 |  950 | 30
+ 50 | TESTING | 1300 | EMP13 | 3000 | 20
+ 50 | TESTING | 1400 | EMP14 | 1300 | 10
+ 50 | TESTING | 1500 | EMP15 |  950 | 60
+ 50 | TESTING | 1600 | EMP16 |      |   
+(6 rows)
+
+-- join + WHERE clause push-down.
+--Testcase 68:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 WHERE d.c1 = 10 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 69:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 WHERE d.c1 = 10 ORDER BY 1, 3;
+ c1 |     c2      |  c1  |  c2   |   c6    | c8 
+----+-------------+------+-------+---------+----
+ 10 | DEVELOPMENT |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT | 1400 | EMP14 |    1300 | 10
+(3 rows)
+
+--Testcase 70:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 WHERE e.c8 = 10 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(4 rows)
+
+--Testcase 71:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d RIGHT OUTER JOIN f_test_tbl1 e ON d.c1 = e.c8 WHERE e.c8 = 10 ORDER BY 1, 3;
+ c1 |     c2      |  c1  |  c2   |   c6    | c8 
+----+-------------+------+-------+---------+----
+ 10 | DEVELOPMENT |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT | 1400 | EMP14 |    1300 | 10
+(3 rows)
+
+--Testcase 72:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON d.c1 = e.c8 WHERE d.c2 = 'SALES' ORDER BY 1, 3;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 73:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON d.c1 = e.c8 WHERE d.c2 = 'SALES' ORDER BY 1, 3;
+ c1 |  c2   |  c1  |  c2   |   c6    | c8 
+----+-------+------+-------+---------+----
+ 30 | SALES |  200 | EMP2  |    1600 | 30
+ 30 | SALES |  300 | EMP3  |    1250 | 30
+ 30 | SALES |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES |  600 | EMP6  |    2850 | 30
+ 30 | SALES | 1000 | EMP10 |    1500 | 30
+ 30 | SALES | 1200 | EMP12 |     950 | 30
+(6 rows)
+
+--Testcase 74:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON d.c1 = e.c8 WHERE e.c2 = 'EMP2' ORDER BY 1, 3;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 75:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON d.c1 = e.c8 WHERE e.c2 = 'EMP2' ORDER BY 1, 3;
+ c1 |  c2   | c1  |  c2  |  c6  | c8 
+----+-------+-----+------+------+----
+ 30 | SALES | 200 | EMP2 | 1600 | 30
+(1 row)
+
+--Testcase 76:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND d.c1 = 20 OR e.c2 = 'EMP1') WHERE d.c1 = 10 OR e.c8 = 30 ORDER BY 1, 3;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 77:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d INNER JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND d.c1 = 20 OR e.c2 = 'EMP1') WHERE d.c1 = 10 OR e.c8 = 30 ORDER BY 1, 3;
+ c1 |     c2      | c1  |  c2  |  c6   | c8 
+----+-------------+-----+------+-------+----
+ 10 | DEVELOPMENT | 100 | EMP1 | 800.3 | 20
+(1 row)
+
+--Testcase 78:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, d.c6, d.c8
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8 AND (e.c1 = 20 OR d.c2 = 'EMP1')) WHERE e.c1 = 20 AND d.c8 = 20 ORDER BY 1, 3;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) INNER JOIN (mongo_fdw_regress.test_tbl2)
+(4 rows)
+
+--Testcase 79:
+SELECT d.c1, d.c2, e.c1, e.c2, d.c6, d.c8
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8 AND (e.c1 = 20 OR d.c2 = 'EMP1')) WHERE e.c1 = 20 AND d.c8 = 20 ORDER BY 1, 3;
+  c1  |  c2   | c1 |       c2       |  c6   | c8 
+------+-------+----+----------------+-------+----
+  100 | EMP1  | 20 | ADMINISTRATION | 800.3 | 20
+  400 | EMP4  | 20 | ADMINISTRATION |  2975 | 20
+  800 | EMP8  | 20 | ADMINISTRATION |  3000 | 20
+ 1100 | EMP11 | 20 | ADMINISTRATION |  1100 | 20
+ 1300 | EMP13 | 20 | ADMINISTRATION |  3000 | 20
+(5 rows)
+
+--Testcase 80:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8 AND (d.c5 = '02-22-1981' OR d.c5 = '12-17-1980')) ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, d.c5
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(4 rows)
+
+--Testcase 81:
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8 AND (d.c5 = '02-22-1981' OR d.c5 = '12-17-1980')) ORDER BY 1, 3;
+  c1  |  c2   |     c5     | c1 |       c2       
+------+-------+------------+----+----------------
+  100 | EMP1  | 1980-12-17 | 20 | ADMINISTRATION
+  200 | EMP2  | 1981-02-20 |    | 
+  300 | EMP3  | 1981-02-22 | 30 | SALES
+  400 | EMP4  | 1981-04-02 |    | 
+  500 | EMP5  | 1981-09-28 |    | 
+  600 | EMP6  | 1981-05-01 |    | 
+  700 | EMP7  | 1981-06-09 |    | 
+  800 | EMP8  | 1987-04-19 |    | 
+  900 | EMP9  | 1981-11-17 |    | 
+ 1000 | EMP10 | 1980-09-08 |    | 
+ 1100 | EMP11 | 1987-05-23 |    | 
+ 1200 | EMP12 | 1981-12-03 |    | 
+ 1300 | EMP13 | 1981-12-03 |    | 
+ 1400 | EMP14 | 1982-01-23 |    | 
+ 1500 | EMP15 | 2000-12-25 |    | 
+ 1600 | EMP16 |            |    | 
+(16 rows)
+
+--Testcase 82:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8) WHERE d.c5 = '02-22-1981' ORDER BY 1;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(4 rows)
+
+--Testcase 83:
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8) WHERE d.c5 = '02-22-1981' ORDER BY 1;
+ c1  |  c2  |     c5     | c1 |  c2   
+-----+------+------------+----+-------
+ 300 | EMP3 | 1981-02-22 | 30 | SALES
+(1 row)
+
+--Testcase 84:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND d.c1 = 20 OR e.c2 = 'EMP1') WHERE d.c1 = 10 OR e.c8 = 30 ORDER BY 1, 3;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Filter: ((c1 = 10) OR (c8 = 30))
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) LEFT JOIN (mongo_fdw_regress.test_tbl1)
+(5 rows)
+
+--Testcase 85:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT JOIN f_test_tbl1 e ON (d.c1 = e.c8 AND d.c1 = 20 OR e.c2 = 'EMP1') WHERE d.c1 = 10 OR e.c8 = 30 ORDER BY 1, 3;
+ c1 |     c2      | c1  |  c2  |  c6   | c8 
+----+-------------+-----+------+-------+----
+ 10 | DEVELOPMENT | 100 | EMP1 | 800.3 | 20
+(1 row)
+
+-- Natural join, should push-down.
+--Testcase 86:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d NATURAL JOIN f_test_tbl1 e WHERE e.c1 > d.c8 ORDER BY 1;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 87:
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d NATURAL JOIN f_test_tbl1 e WHERE e.c1 > d.c8 ORDER BY 1;
+  c1  |  c2   |     c5     |  c1  |  c2   
+------+-------+------------+------+-------
+  100 | EMP1  | 1980-12-17 |  100 | EMP1
+  200 | EMP2  | 1981-02-20 |  200 | EMP2
+  300 | EMP3  | 1981-02-22 |  300 | EMP3
+  400 | EMP4  | 1981-04-02 |  400 | EMP4
+  500 | EMP5  | 1981-09-28 |  500 | EMP5
+  600 | EMP6  | 1981-05-01 |  600 | EMP6
+  700 | EMP7  | 1981-06-09 |  700 | EMP7
+  800 | EMP8  | 1987-04-19 |  800 | EMP8
+ 1000 | EMP10 | 1980-09-08 | 1000 | EMP10
+ 1100 | EMP11 | 1987-05-23 | 1100 | EMP11
+ 1200 | EMP12 | 1981-12-03 | 1200 | EMP12
+ 1300 | EMP13 | 1981-12-03 | 1300 | EMP13
+ 1400 | EMP14 | 1982-01-23 | 1400 | EMP14
+ 1500 | EMP15 | 2000-12-25 | 1500 | EMP15
+(14 rows)
+
+-- Self join, should push-down.
+--Testcase 88:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d INNER JOIN f_test_tbl1 e ON e.c8 = d.c8 ORDER BY 1 OFFSET 65;
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl1) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(5 rows)
+
+--Testcase 89:
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d INNER JOIN f_test_tbl1 e ON e.c8 = d.c8 ORDER BY 1 OFFSET 65;
+  c1  |  c2   |     c5     |  c1  |  c2   
+------+-------+------------+------+-------
+ 1300 | EMP13 | 1981-12-03 | 1100 | EMP11
+ 1300 | EMP13 | 1981-12-03 | 1300 | EMP13
+ 1400 | EMP14 | 1982-01-23 |  700 | EMP7
+ 1400 | EMP14 | 1982-01-23 |  900 | EMP9
+ 1400 | EMP14 | 1982-01-23 | 1400 | EMP14
+ 1500 | EMP15 | 2000-12-25 | 1500 | EMP15
+(6 rows)
+
+-- Join in CTE.
+-- Explain plan difference between v11 (or pre) and later.
+--Testcase 90:
+EXPLAIN (COSTS false, VERBOSE)
+WITH t (c1_1, c1_3, c2_1) AS (
+  SELECT d.c1, d.c3, e.c1
+    FROM f_test_tbl1 d JOIN f_test_tbl2 e ON (d.c8 = e.c1)
+) SELECT c1_1, c2_1 FROM t ORDER BY c1_3, c1_1;
+                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: d.c1, e.c1, d.c3
+   Sort Key: d.c3, d.c1
+   ->  Foreign Scan
+         Output: d.c1, e.c1, d.c3
+         Foreign Namespace: (mongo_fdw_regress.test_tbl1) INNER JOIN (mongo_fdw_regress.test_tbl2)
+         Query document: { "pipeline" : [ { "$lookup" : { "from" : "test_tbl2", "let" : { "ref9" : "$c8" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref9", "$c1" ] }, { "$ne" : [ "$$ref9", null ] }, { "$ne" : [ "$c1", null ] } ] } } }, { "$project" : { "ref1" : "$c1" } } ], "as" : "test_tbl2" } }, { "$unwind" : { "path" : "$test_tbl2", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "ref2" : "$c3", "test_tbl2" : { "$numberInt" : "1" } } } ] }
+(7 rows)
+
+--Testcase 91:
+WITH t (c1_1, c1_3, c2_1) AS (
+  SELECT d.c1, d.c3, e.c1
+    FROM f_test_tbl1 d JOIN f_test_tbl2 e ON (d.c8 = e.c1)
+) SELECT c1_1, c2_1 FROM t ORDER BY c1_3, c1_1;
+ c1_1 | c2_1 
+------+------
+  100 |   20
+ 1100 |   20
+ 1200 |   30
+ 1400 |   10
+  800 |   20
+ 1300 |   20
+  900 |   10
+  400 |   20
+  600 |   30
+  700 |   10
+  200 |   30
+  300 |   30
+  500 |   30
+ 1000 |   30
+(14 rows)
+
+-- Can push down logic operator in WHERE clause.
+--Testcase 92:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl2 e LEFT JOIN f_test_tbl1 d ON (e.c1 = d.c8) WHERE d.c5 = '02-22-1981' OR d.c5 = '12-17-1980' ORDER BY 1;
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1
+   ->  Foreign Scan
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+(4 rows)
+
+--Testcase 93:
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl2 e LEFT JOIN f_test_tbl1 d ON (e.c1 = d.c8) WHERE d.c5 = '02-22-1981' OR d.c5 = '12-17-1980' ORDER BY 1;
+ c1  |  c2  |     c5     | c1 |       c2       
+-----+------+------------+----+----------------
+ 100 | EMP1 | 1980-12-17 | 20 | ADMINISTRATION
+ 300 | EMP3 | 1981-02-22 | 30 | SALES
+(2 rows)
+
+-- Nested joins(Don't push-down nested join)
+--Testcase 94:
+SET enable_mergejoin TO OFF;
+--Testcase 95:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8) LEFT JOIN f_test_tbl1 f ON (f.c8 = e.c1) ORDER BY d.c1 OFFSET 65 ;
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c1
+         ->  Hash Right Join
+               Hash Cond: (f.c8 = e.c1)
+               ->  Foreign Scan on f_test_tbl1 f
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+               ->  Hash
+                     ->  Foreign Scan
+                           Foreign Namespace: (mongo_fdw_regress.test_tbl1) LEFT JOIN (mongo_fdw_regress.test_tbl2)
+(10 rows)
+
+--Testcase 96:
+SELECT d.c1, d.c2, d.c5, e.c1, e.c2
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8) LEFT JOIN f_test_tbl1 f ON (f.c8 = e.c1) ORDER BY d.c1 OFFSET 65;
+  c1  |  c2   |     c5     | c1 |       c2       
+------+-------+------------+----+----------------
+ 1300 | EMP13 | 1981-12-03 | 20 | ADMINISTRATION
+ 1300 | EMP13 | 1981-12-03 | 20 | ADMINISTRATION
+ 1400 | EMP14 | 1982-01-23 | 10 | DEVELOPMENT
+ 1400 | EMP14 | 1982-01-23 | 10 | DEVELOPMENT
+ 1400 | EMP14 | 1982-01-23 | 10 | DEVELOPMENT
+ 1500 | EMP15 | 2000-12-25 |    | 
+ 1600 | EMP16 |            |    | 
+(7 rows)
+
+--Testcase 97:
+RESET enable_mergejoin;
+-- Not supported expressions won't push-down(e.g. function expression, etc.)
+--Testcase 98:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON (ABS(d.c1) = e.c8) ORDER BY 1, 3;
+                             QUERY PLAN                             
+--------------------------------------------------------------------
+ Sort
+   Sort Key: d.c1, e.c1
+   ->  Merge Left Join
+         Merge Cond: ((abs(d.c1)) = e.c8)
+         ->  Sort
+               Sort Key: (abs(d.c1))
+               ->  Foreign Scan on f_test_tbl2 d
+                     Foreign Namespace: mongo_fdw_regress.test_tbl2
+         ->  Sort
+               Sort Key: e.c8
+               ->  Foreign Scan on f_test_tbl1 e
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+(12 rows)
+
+--Testcase 99:
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl1 e ON (ABS(d.c1) = e.c8) ORDER BY 1, 3;
+ c1 |       c2       |  c1  |  c2   |   c6    | c8 
+----+----------------+------+-------+---------+----
+ 10 | DEVELOPMENT    |  700 | EMP7  | 2450.34 | 10
+ 10 | DEVELOPMENT    |  900 | EMP9  |    5000 | 10
+ 10 | DEVELOPMENT    | 1400 | EMP14 |    1300 | 10
+ 20 | ADMINISTRATION |  100 | EMP1  |   800.3 | 20
+ 20 | ADMINISTRATION |  400 | EMP4  |    2975 | 20
+ 20 | ADMINISTRATION |  800 | EMP8  |    3000 | 20
+ 20 | ADMINISTRATION | 1100 | EMP11 |    1100 | 20
+ 20 | ADMINISTRATION | 1300 | EMP13 |    3000 | 20
+ 30 | SALES          |  200 | EMP2  |    1600 | 30
+ 30 | SALES          |  300 | EMP3  |    1250 | 30
+ 30 | SALES          |  500 | EMP5  | 1250.23 | 30
+ 30 | SALES          |  600 | EMP6  |    2850 | 30
+ 30 | SALES          | 1000 | EMP10 |    1500 | 30
+ 30 | SALES          | 1200 | EMP12 |     950 | 30
+ 40 | HR             |      |       |         |   
+ 50 | TESTING        |      |       |         |   
+    |                |      |       |         |   
+(17 rows)
+
+-- Don't pushdown when whole row reference is involved.
+--Testcase 100:
+EXPLAIN (COSTS OFF)
+SELECT d, e
+  FROM f_test_tbl1 d LEFT JOIN f_test_tbl2 e ON (e.c1 = d.c8) LEFT JOIN f_test_tbl1 f ON (f.c8 = e.c1) ORDER BY e.c1 OFFSET 65;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Limit
+   ->  Merge Left Join
+         Merge Cond: (e.c1 = f.c8)
+         ->  Sort
+               Sort Key: e.c1
+               ->  Merge Left Join
+                     Merge Cond: (d.c8 = e.c1)
+                     ->  Sort
+                           Sort Key: d.c8
+                           ->  Foreign Scan on f_test_tbl1 d
+                                 Foreign Namespace: mongo_fdw_regress.test_tbl1
+                     ->  Sort
+                           Sort Key: e.c1
+                           ->  Foreign Scan on f_test_tbl2 e
+                                 Foreign Namespace: mongo_fdw_regress.test_tbl2
+         ->  Sort
+               Sort Key: f.c8
+               ->  Foreign Scan on f_test_tbl1 f
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+(19 rows)
+
+-- Don't pushdown when full document retrieval is involved.
+--Testcase 101:
+EXPLAIN (COSTS OFF)
+SELECT json_data.key AS key1, json_data.value AS value1
+  FROM test_text, test_varchar, json_each_text(test_text.__doc::json) AS json_data WHERE key NOT IN ('_id') ORDER BY json_data.key COLLATE "C";
+                             QUERY PLAN                             
+--------------------------------------------------------------------
+ Sort
+   Sort Key: json_data.key COLLATE "C"
+   ->  Nested Loop
+         ->  Nested Loop
+               ->  Foreign Scan on test_text
+                     Foreign Namespace: mongo_fdw_regress.warehouse
+               ->  Function Scan on json_each_text json_data
+                     Filter: (key <> '_id'::text)
+         ->  Foreign Scan on test_varchar
+               Foreign Namespace: mongo_fdw_regress.warehouse
+(10 rows)
+
+--Testcase 102:
+SELECT json_data.key AS key1, json_data.value AS value1
+  FROM test_text, test_varchar, json_each_text(test_text.__doc::json) AS json_data WHERE key NOT IN ('_id') ORDER BY json_data.key COLLATE "C";
+       key1        |           value1            
+-------------------+-----------------------------
+ warehouse_created | { "$date" : 1418368330000 }
+ warehouse_created | { "$date" : 1418368330000 }
+ warehouse_created | { "$date" : 1447229590000 }
+ warehouse_created | { "$date" : 1447229590000 }
+ warehouse_id      | 2
+ warehouse_id      | 1
+ warehouse_id      | 1
+ warehouse_id      | 2
+ warehouse_name    | Laptop
+ warehouse_name    | Laptop
+ warehouse_name    | UPS
+ warehouse_name    | UPS
+(12 rows)
+
+-- Join two tables from two different foreign servers.
+--Testcase 103:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, e.c1
+  FROM f_test_tbl2 d LEFT OUTER JOIN f_test_tbl3 e ON d.c1 = e.c1 ORDER BY 1;
+                          QUERY PLAN                          
+--------------------------------------------------------------
+ Merge Left Join
+   Merge Cond: (d.c1 = e.c1)
+   ->  Sort
+         Sort Key: d.c1
+         ->  Foreign Scan on f_test_tbl2 d
+               Foreign Namespace: mongo_fdw_regress.test_tbl2
+   ->  Sort
+         Sort Key: e.c1
+         ->  Foreign Scan on f_test_tbl3 e
+               Foreign Namespace: mongo_fdw_regress.test_tbl2
+(10 rows)
+
+-- SEMI JOIN, not pushed down
+--Testcase 104:
+EXPLAIN (COSTS OFF)
+SELECT d.c2
+  FROM f_test_tbl1 d WHERE EXISTS (SELECT 1 FROM f_test_tbl2 e WHERE d.c8 = e.c1) ORDER BY d.c2 LIMIT 10;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c2
+         ->  Hash Join
+               Hash Cond: (d.c8 = e.c1)
+               ->  Foreign Scan on f_test_tbl1 d
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+               ->  Hash
+                     ->  HashAggregate
+                           Group Key: e.c1
+                           ->  Foreign Scan on f_test_tbl2 e
+                                 Foreign Namespace: mongo_fdw_regress.test_tbl2
+(12 rows)
+
+--Testcase 105:
+SELECT d.c2
+  FROM f_test_tbl1 d WHERE EXISTS (SELECT 1 FROM f_test_tbl2 e WHERE d.c8 = e.c1) ORDER BY d.c2 LIMIT 10;
+  c2   
+-------
+ EMP1
+ EMP10
+ EMP11
+ EMP12
+ EMP13
+ EMP14
+ EMP2
+ EMP3
+ EMP4
+ EMP5
+(10 rows)
+
+-- ANTI JOIN, not pushed down
+--Testcase 106:
+EXPLAIN (COSTS OFF)
+SELECT d.c2
+  FROM f_test_tbl1 d WHERE NOT EXISTS (SELECT 1 FROM f_test_tbl2 e WHERE d.c8 = e.c1) ORDER BY d.c2 LIMIT 10;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c2
+         ->  Hash Anti Join
+               Hash Cond: (d.c8 = e.c1)
+               ->  Foreign Scan on f_test_tbl1 d
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+               ->  Hash
+                     ->  Foreign Scan on f_test_tbl2 e
+                           Foreign Namespace: mongo_fdw_regress.test_tbl2
+(10 rows)
+
+--Testcase 107:
+SELECT d.c2
+  FROM f_test_tbl1 d WHERE NOT EXISTS (SELECT 1 FROM f_test_tbl2 e WHERE d.c8 = e.c1) ORDER BY d.c2 LIMIT 10;
+  c2   
+-------
+ EMP15
+ EMP16
+(2 rows)
+
+-- FULL OUTER JOIN, should not pushdown.
+--Testcase 108:
+EXPLAIN (COSTS OFF)
+SELECT d.c1, e.c1
+  FROM f_test_tbl1 d FULL JOIN f_test_tbl2 e ON (d.c8 = e.c1) ORDER BY d.c2 LIMIT 10;
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: d.c2
+         ->  Merge Full Join
+               Merge Cond: (d.c8 = e.c1)
+               ->  Sort
+                     Sort Key: d.c8
+                     ->  Foreign Scan on f_test_tbl1 d
+                           Foreign Namespace: mongo_fdw_regress.test_tbl1
+               ->  Sort
+                     Sort Key: e.c1
+                     ->  Foreign Scan on f_test_tbl2 e
+                           Foreign Namespace: mongo_fdw_regress.test_tbl2
+(13 rows)
+
+--Testcase 109:
+SELECT d.c1, e.c1
+  FROM f_test_tbl1 d FULL JOIN f_test_tbl2 e ON (d.c8 = e.c1) ORDER BY d.c2 LIMIT 10;
+  c1  | c1 
+------+----
+  100 | 20
+ 1000 | 30
+ 1100 | 20
+ 1200 | 30
+ 1300 | 20
+ 1400 | 10
+ 1500 |   
+ 1600 |   
+  200 | 30
+  300 | 30
+(10 rows)
+
+-- CROSS JOIN can be pushed down
+--Testcase 110:
+EXPLAIN (COSTS OFF)
+SELECT e.c1, d.c2
+  FROM f_test_tbl1 d CROSS JOIN f_test_tbl2 e ORDER BY e.c1, d.c2 LIMIT 10;
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: e.c1, d.c2
+         ->  Foreign Scan
+               Foreign Namespace: (mongo_fdw_regress.test_tbl1) INNER JOIN (mongo_fdw_regress.test_tbl2)
+(5 rows)
+
+--Testcase 111:
+SELECT e.c1, d.c2
+  FROM f_test_tbl1 d CROSS JOIN f_test_tbl2 e ORDER BY e.c1, d.c2 LIMIT 10;
+ c1 |  c2   
+----+-------
+ 10 | EMP1
+ 10 | EMP10
+ 10 | EMP11
+ 10 | EMP12
+ 10 | EMP13
+ 10 | EMP14
+ 10 | EMP15
+ 10 | EMP16
+ 10 | EMP2
+ 10 | EMP3
+(10 rows)
+
+-- Test partition-wise join
+--Testcase 112:
+SET enable_partitionwise_join TO on;
+-- Create the partition tables
+--Testcase 113:
+CREATE TABLE fprt1 (_id NAME, c1 INTEGER, c2 INTEGER, c3 TEXT) PARTITION BY RANGE(c1);
+--Testcase 114:
+CREATE FOREIGN TABLE ftprt1_p1 PARTITION OF fprt1 FOR VALUES FROM (1) TO (4)
+  SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'test1');
+--Testcase 115:
+CREATE FOREIGN TABLE ftprt1_p2 PARTITION OF fprt1 FOR VALUES FROM (5) TO (8)
+  SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'test2');
+--Testcase 116:
+CREATE TABLE fprt2 (_id NAME, c1 INTEGER, c2 INTEGER, c3 TEXT) PARTITION BY RANGE(c2);
+--Testcase 117:
+CREATE FOREIGN TABLE ftprt2_p1 PARTITION OF fprt2 FOR VALUES FROM (1) TO (4)
+  SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'test3');
+--Testcase 118:
+CREATE FOREIGN TABLE ftprt2_p2 PARTITION OF fprt2 FOR VALUES FROM (5) TO (8)
+  SERVER mongo_server OPTIONS (database 'mongo_fdw_regress', collection 'test4');
+-- Inner join two tables
+-- Different explain plan on v10 as partition-wise join is not supported there.
+--Testcase 119:
+SET enable_mergejoin TO OFF;
+--Testcase 120:
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT t1.c1, t2.c2
+  FROM fprt1 t1 INNER JOIN fprt2 t2 ON (t1.c1 = t2.c2) ORDER BY 1,2;
+                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: t1.c1, t2.c2
+   Sort Key: t1.c1
+   ->  Append
+         ->  Foreign Scan
+               Output: t1_1.c1, t2_1.c2
+               Foreign Namespace: (mongo_fdw_regress.test1) INNER JOIN (mongo_fdw_regress.test3)
+               Query document: { "pipeline" : [ { "$lookup" : { "from" : "test3", "let" : { "ref2" : "$c1" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref2", "$c2" ] }, { "$ne" : [ "$$ref2", null ] }, { "$ne" : [ "$c2", null ] } ] } } }, { "$project" : { "ref1" : "$c2" } } ], "as" : "test3" } }, { "$unwind" : { "path" : "$test3", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "test3" : { "$numberInt" : "1" } } } ] }
+         ->  Foreign Scan
+               Output: t1_2.c1, t2_2.c2
+               Foreign Namespace: (mongo_fdw_regress.test2) INNER JOIN (mongo_fdw_regress.test4)
+               Query document: { "pipeline" : [ { "$lookup" : { "from" : "test4", "let" : { "ref2" : "$c1" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref2", "$c2" ] }, { "$ne" : [ "$$ref2", null ] }, { "$ne" : [ "$c2", null ] } ] } } }, { "$project" : { "ref1" : "$c2" } } ], "as" : "test4" } }, { "$unwind" : { "path" : "$test4", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "test4" : { "$numberInt" : "1" } } } ] }
+(12 rows)
+
+--Testcase 121:
+SELECT t1.c1, t2.c2
+  FROM fprt1 t1 INNER JOIN fprt2 t2 ON (t1.c1 = t2.c2) ORDER BY 1,2;
+ c1 | c2 
+----+----
+  1 |  1
+  2 |  2
+  3 |  3
+  4 |  4
+  5 |  5
+  6 |  6
+  7 |  7
+  8 |  8
+(8 rows)
+
+-- Inner join three tables
+-- Different explain plan on v10 as partition-wise join is not supported there.
+--Testcase 122:
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT t1.c1, t2.c2, t3.c2
+  FROM fprt1 t1 INNER JOIN fprt2 t2 ON (t1.c1 = t2.c2) INNER JOIN fprt1 t3 ON (t3.c1 = t2.c2) ORDER BY 1,2;
+                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: t1.c1, t2.c2, t3.c2
+   Sort Key: t1.c1
+   ->  Append
+         ->  Hash Join
+               Output: t1_1.c1, t2_1.c2, t3_1.c2
+               Hash Cond: (t3_1.c1 = t1_1.c1)
+               ->  Foreign Scan on public.ftprt1_p1 t3_1
+                     Output: t3_1.c2, t3_1.c1
+                     Foreign Namespace: mongo_fdw_regress.test1
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+               ->  Hash
+                     Output: t1_1.c1, t2_1.c2
+                     ->  Foreign Scan
+                           Output: t1_1.c1, t2_1.c2
+                           Foreign Namespace: (mongo_fdw_regress.test1) INNER JOIN (mongo_fdw_regress.test3)
+                           Query document: { "pipeline" : [ { "$lookup" : { "from" : "test3", "let" : { "ref2" : "$c1" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref2", "$c2" ] }, { "$ne" : [ "$$ref2", null ] }, { "$ne" : [ "$c2", null ] } ] } } }, { "$project" : { "ref1" : "$c2" } } ], "as" : "test3" } }, { "$unwind" : { "path" : "$test3", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "test3" : { "$numberInt" : "1" } } } ] }
+         ->  Hash Join
+               Output: t1_2.c1, t2_2.c2, t3_2.c2
+               Hash Cond: (t3_2.c1 = t1_2.c1)
+               ->  Foreign Scan on public.ftprt1_p2 t3_2
+                     Output: t3_2.c2, t3_2.c1
+                     Foreign Namespace: mongo_fdw_regress.test2
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+               ->  Hash
+                     Output: t1_2.c1, t2_2.c2
+                     ->  Foreign Scan
+                           Output: t1_2.c1, t2_2.c2
+                           Foreign Namespace: (mongo_fdw_regress.test2) INNER JOIN (mongo_fdw_regress.test4)
+                           Query document: { "pipeline" : [ { "$lookup" : { "from" : "test4", "let" : { "ref2" : "$c1" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref2", "$c2" ] }, { "$ne" : [ "$$ref2", null ] }, { "$ne" : [ "$c2", null ] } ] } } }, { "$project" : { "ref1" : "$c2" } } ], "as" : "test4" } }, { "$unwind" : { "path" : "$test4", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "test4" : { "$numberInt" : "1" } } } ] }
+(30 rows)
+
+--Testcase 123:
+SELECT t1.c1, t2.c2, t3.c2
+  FROM fprt1 t1 INNER JOIN fprt2 t2 ON (t1.c1 = t2.c2) INNER JOIN fprt1 t3 ON (t3.c1 = t2.c2) ORDER BY 1,2;
+ c1 | c2 | c2 
+----+----+----
+  1 |  1 |  1
+  2 |  2 |  2
+  3 |  3 |  3
+  4 |  4 |  4
+  5 |  5 |  5
+  6 |  6 |  6
+  7 |  7 |  7
+  8 |  8 |  8
+(8 rows)
+
+--Testcase 124:
+RESET enable_mergejoin;
+-- Join with lateral reference
+-- Different explain plan on v10 as partition-wise join is not supported there.
+--Testcase 125:
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT t1.c1, t1.c2
+  FROM fprt1 t1, LATERAL (SELECT t2.c1, t2.c2 FROM fprt2 t2
+  WHERE t1.c1 = t2.c2 AND t1.c2 = t2.c1) q WHERE t1.c1 % 2 = 0 ORDER BY 1,2;
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Merge Append
+   Sort Key: t1.c1, t1.c2
+   ->  Merge Join
+         Output: t1_1.c1, t1_1.c2
+         Merge Cond: ((t1_1.c1 = t2_1.c2) AND (t1_1.c2 = t2_1.c1))
+         ->  Sort
+               Output: t1_1.c1, t1_1.c2
+               Sort Key: t1_1.c1, t1_1.c2
+               ->  Foreign Scan on public.ftprt1_p1 t1_1
+                     Output: t1_1.c1, t1_1.c2
+                     Filter: ((t1_1.c1 % 2) = 0)
+                     Foreign Namespace: mongo_fdw_regress.test1
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+         ->  Sort
+               Output: t2_1.c2, t2_1.c1
+               Sort Key: t2_1.c2, t2_1.c1
+               ->  Foreign Scan on public.ftprt2_p1 t2_1
+                     Output: t2_1.c2, t2_1.c1
+                     Foreign Namespace: mongo_fdw_regress.test3
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+   ->  Merge Join
+         Output: t1_2.c1, t1_2.c2
+         Merge Cond: ((t1_2.c1 = t2_2.c2) AND (t1_2.c2 = t2_2.c1))
+         ->  Sort
+               Output: t1_2.c1, t1_2.c2
+               Sort Key: t1_2.c1, t1_2.c2
+               ->  Foreign Scan on public.ftprt1_p2 t1_2
+                     Output: t1_2.c1, t1_2.c2
+                     Filter: ((t1_2.c1 % 2) = 0)
+                     Foreign Namespace: mongo_fdw_regress.test2
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+         ->  Sort
+               Output: t2_2.c2, t2_2.c1
+               Sort Key: t2_2.c2, t2_2.c1
+               ->  Foreign Scan on public.ftprt2_p2 t2_2
+                     Output: t2_2.c2, t2_2.c1
+                     Foreign Namespace: mongo_fdw_regress.test4
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+(38 rows)
+
+--Testcase 126:
+SELECT t1.c1, t1.c2
+  FROM fprt1 t1, LATERAL (SELECT t2.c1, t2.c2 FROM fprt2 t2
+  WHERE t1.c1 = t2.c2 AND t1.c2 = t2.c1) q WHERE t1.c1 % 2 = 0 ORDER BY 1,2;
+ c1 | c2 
+----+----
+  2 |  2
+  4 |  4
+  6 |  6
+  8 |  8
+(4 rows)
+
+-- With PHVs, partitionwise join selected but no join pushdown
+-- Table alias in foreign scan is different for v12, v11 and v10.
+--Testcase 127:
+EXPLAIN (VERBOSE, COSTS OFF)
+SELECT t1.c1, t1.phv, t2.c2, t2.phv
+  FROM (SELECT 't1_phv' phv, * FROM fprt1 WHERE c1 % 2 = 0) t1 LEFT JOIN
+    (SELECT 't2_phv' phv, * FROM fprt2 WHERE c2 % 2 = 0) t2 ON (t1.c1 = t2.c2)
+  ORDER BY t1.c1, t2.c2;
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
+   Output: fprt1.c1, 't1_phv'::text, fprt2.c2, ('t2_phv'::text)
+   Sort Key: fprt1.c1, fprt2.c2
+   Presorted Key: fprt1.c1
+   ->  Merge Append
+         Sort Key: fprt1.c1
+         ->  Merge Left Join
+               Output: fprt1_1.c1, 't1_phv'::text, fprt2_1.c2, ('t2_phv'::text)
+               Merge Cond: (fprt1_1.c1 = fprt2_1.c2)
+               ->  Sort
+                     Output: fprt1_1.c1
+                     Sort Key: fprt1_1.c1
+                     ->  Foreign Scan on public.ftprt1_p1 fprt1_1
+                           Output: fprt1_1.c1
+                           Filter: ((fprt1_1.c1 % 2) = 0)
+                           Foreign Namespace: mongo_fdw_regress.test1
+                           Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" } } } ] }
+               ->  Sort
+                     Output: fprt2_1.c2, ('t2_phv'::text)
+                     Sort Key: fprt2_1.c2
+                     ->  Foreign Scan on public.ftprt2_p1 fprt2_1
+                           Output: fprt2_1.c2, 't2_phv'::text
+                           Filter: ((fprt2_1.c2 % 2) = 0)
+                           Foreign Namespace: mongo_fdw_regress.test3
+                           Query document: { "pipeline" : [ { "$project" : { "c2" : { "$numberInt" : "1" } } } ] }
+         ->  Merge Left Join
+               Output: fprt1_2.c1, 't1_phv'::text, fprt2_2.c2, ('t2_phv'::text)
+               Merge Cond: (fprt1_2.c1 = fprt2_2.c2)
+               ->  Sort
+                     Output: fprt1_2.c1
+                     Sort Key: fprt1_2.c1
+                     ->  Foreign Scan on public.ftprt1_p2 fprt1_2
+                           Output: fprt1_2.c1
+                           Filter: ((fprt1_2.c1 % 2) = 0)
+                           Foreign Namespace: mongo_fdw_regress.test2
+                           Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" } } } ] }
+               ->  Sort
+                     Output: fprt2_2.c2, ('t2_phv'::text)
+                     Sort Key: fprt2_2.c2
+                     ->  Foreign Scan on public.ftprt2_p2 fprt2_2
+                           Output: fprt2_2.c2, 't2_phv'::text
+                           Filter: ((fprt2_2.c2 % 2) = 0)
+                           Foreign Namespace: mongo_fdw_regress.test4
+                           Query document: { "pipeline" : [ { "$project" : { "c2" : { "$numberInt" : "1" } } } ] }
+(44 rows)
+
+--Testcase 128:
+SELECT t1.c1, t1.phv, t2.c2, t2.phv
+  FROM (SELECT 't1_phv' phv, * FROM fprt1 WHERE c1 % 2 = 0) t1 LEFT JOIN
+    (SELECT 't2_phv' phv, * FROM fprt2 WHERE c2 % 2 = 0) t2 ON (t1.c1 = t2.c2)
+  ORDER BY t1.c1, t2.c2;
+ c1 |  phv   | c2 |  phv   
+----+--------+----+--------
+  2 | t1_phv |  2 | t2_phv
+  4 | t1_phv |  4 | t2_phv
+  6 | t1_phv |  6 | t2_phv
+  8 | t1_phv |  8 | t2_phv
+(4 rows)
+
+--Testcase 129:
+RESET enable_partitionwise_join;
+-- FDW-445: Support enable_join_pushdown option at server level and table level.
+-- Check only boolean values are accepted.
+--Testcase 130:
+ALTER SERVER mongo_server OPTIONS (ADD enable_join_pushdown 'abc11');
+ERROR:  enable_join_pushdown requires a Boolean value
+-- Test the option at server level.
+--Testcase 131:
+ALTER SERVER mongo_server OPTIONS (ADD enable_join_pushdown 'false');
+--Testcase 132:
+EXPLAIN (COSTS FALSE, VERBOSE)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
+   Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+   Sort Key: d.c1, e.c1
+   Presorted Key: d.c1
+   ->  Merge Join
+         Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+         Merge Cond: (d.c1 = e.c8)
+         ->  Sort
+               Output: d.c1, d.c2
+               Sort Key: d.c1
+               ->  Foreign Scan on public.f_test_tbl2 d
+                     Output: d.c1, d.c2
+                     Foreign Namespace: mongo_fdw_regress.test_tbl2
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+         ->  Sort
+               Output: e.c1, e.c2, e.c6, e.c8
+               Sort Key: e.c8
+               ->  Foreign Scan on public.f_test_tbl1 e
+                     Output: e.c1, e.c2, e.c6, e.c8
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" }, "c6" : { "$numberInt" : "1" }, "c8" : { "$numberInt" : "1" } } } ] }
+(21 rows)
+
+--Testcase 133:
+ALTER SERVER mongo_server OPTIONS (SET enable_join_pushdown 'true');
+--Testcase 134:
+EXPLAIN (COSTS FALSE, VERBOSE)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+         Query document: { "pipeline" : [ { "$lookup" : { "from" : "test_tbl1", "let" : { "ref2" : "$c1" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref2", "$c8" ] }, { "$ne" : [ "$$ref2", null ] }, { "$ne" : [ "$c8", null ] } ] } } }, { "$project" : { "ref2" : "$c1", "ref3" : "$c2", "ref4" : "$c6", "ref5" : "$c8" } } ], "as" : "test_tbl1" } }, { "$unwind" : { "path" : "$test_tbl1", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "ref1" : "$c2", "test_tbl1" : { "$numberInt" : "1" } } } ] }
+(7 rows)
+
+-- Test the option with outer rel.
+--Testcase 135:
+ALTER FOREIGN TABLE f_test_tbl2 OPTIONS (ADD enable_join_pushdown 'false');
+--Testcase 136:
+EXPLAIN (COSTS FALSE, VERBOSE)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
+   Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+   Sort Key: d.c1, e.c1
+   Presorted Key: d.c1
+   ->  Merge Join
+         Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+         Merge Cond: (d.c1 = e.c8)
+         ->  Sort
+               Output: d.c1, d.c2
+               Sort Key: d.c1
+               ->  Foreign Scan on public.f_test_tbl2 d
+                     Output: d.c1, d.c2
+                     Foreign Namespace: mongo_fdw_regress.test_tbl2
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+         ->  Sort
+               Output: e.c1, e.c2, e.c6, e.c8
+               Sort Key: e.c8
+               ->  Foreign Scan on public.f_test_tbl1 e
+                     Output: e.c1, e.c2, e.c6, e.c8
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" }, "c6" : { "$numberInt" : "1" }, "c8" : { "$numberInt" : "1" } } } ] }
+(21 rows)
+
+--Testcase 137:
+ALTER FOREIGN TABLE f_test_tbl2 OPTIONS (SET enable_join_pushdown 'true');
+--Testcase 138:
+EXPLAIN (COSTS FALSE, VERBOSE)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+         Query document: { "pipeline" : [ { "$lookup" : { "from" : "test_tbl1", "let" : { "ref2" : "$c1" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref2", "$c8" ] }, { "$ne" : [ "$$ref2", null ] }, { "$ne" : [ "$c8", null ] } ] } } }, { "$project" : { "ref2" : "$c1", "ref3" : "$c2", "ref4" : "$c6", "ref5" : "$c8" } } ], "as" : "test_tbl1" } }, { "$unwind" : { "path" : "$test_tbl1", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "ref1" : "$c2", "test_tbl1" : { "$numberInt" : "1" } } } ] }
+(7 rows)
+
+-- Test the option with inner rel.
+--Testcase 139:
+ALTER FOREIGN TABLE f_test_tbl1 OPTIONS (ADD enable_join_pushdown 'false');
+--Testcase 140:
+EXPLAIN (COSTS FALSE, VERBOSE)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
+   Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+   Sort Key: d.c1, e.c1
+   Presorted Key: d.c1
+   ->  Merge Join
+         Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+         Merge Cond: (d.c1 = e.c8)
+         ->  Sort
+               Output: d.c1, d.c2
+               Sort Key: d.c1
+               ->  Foreign Scan on public.f_test_tbl2 d
+                     Output: d.c1, d.c2
+                     Foreign Namespace: mongo_fdw_regress.test_tbl2
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+         ->  Sort
+               Output: e.c1, e.c2, e.c6, e.c8
+               Sort Key: e.c8
+               ->  Foreign Scan on public.f_test_tbl1 e
+                     Output: e.c1, e.c2, e.c6, e.c8
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" }, "c6" : { "$numberInt" : "1" }, "c8" : { "$numberInt" : "1" } } } ] }
+(21 rows)
+
+--Testcase 141:
+ALTER FOREIGN TABLE f_test_tbl1 OPTIONS (SET enable_join_pushdown 'true');
+--Testcase 142:
+EXPLAIN (COSTS FALSE, VERBOSE)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+   Sort Key: d.c1, e.c1
+   ->  Foreign Scan
+         Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+         Query document: { "pipeline" : [ { "$lookup" : { "from" : "test_tbl1", "let" : { "ref2" : "$c1" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref2", "$c8" ] }, { "$ne" : [ "$$ref2", null ] }, { "$ne" : [ "$c8", null ] } ] } } }, { "$project" : { "ref2" : "$c1", "ref3" : "$c2", "ref4" : "$c6", "ref5" : "$c8" } } ], "as" : "test_tbl1" } }, { "$unwind" : { "path" : "$test_tbl1", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "ref1" : "$c2", "test_tbl1" : { "$numberInt" : "1" } } } ] }
+(7 rows)
+
+-- Test that setting option at table level does not affect the setting at
+-- server level.
+--Testcase 143:
+ALTER FOREIGN TABLE f_test_tbl1 OPTIONS (SET enable_join_pushdown 'false');
+--Testcase 144:
+ALTER FOREIGN TABLE f_test_tbl2 OPTIONS (SET enable_join_pushdown 'false');
+--Testcase 145:
+EXPLAIN (COSTS FALSE, VERBOSE)
+SELECT d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+  FROM f_test_tbl2 d JOIN f_test_tbl1 e ON d.c1 = e.c8 ORDER BY 1, 3;
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Incremental Sort
+   Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+   Sort Key: d.c1, e.c1
+   Presorted Key: d.c1
+   ->  Merge Join
+         Output: d.c1, d.c2, e.c1, e.c2, e.c6, e.c8
+         Merge Cond: (d.c1 = e.c8)
+         ->  Sort
+               Output: d.c1, d.c2
+               Sort Key: d.c1
+               ->  Foreign Scan on public.f_test_tbl2 d
+                     Output: d.c1, d.c2
+                     Foreign Namespace: mongo_fdw_regress.test_tbl2
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" } } } ] }
+         ->  Sort
+               Output: e.c1, e.c2, e.c6, e.c8
+               Sort Key: e.c8
+               ->  Foreign Scan on public.f_test_tbl1 e
+                     Output: e.c1, e.c2, e.c6, e.c8
+                     Foreign Namespace: mongo_fdw_regress.test_tbl1
+                     Query document: { "pipeline" : [ { "$project" : { "c1" : { "$numberInt" : "1" }, "c2" : { "$numberInt" : "1" }, "c6" : { "$numberInt" : "1" }, "c8" : { "$numberInt" : "1" } } } ] }
+(21 rows)
+
+--Testcase 146:
+EXPLAIN (COSTS FALSE, VERBOSE)
+SELECT t1.c1, t2.c2
+  FROM f_test_tbl3 t1 JOIN f_test_tbl4 t2 ON (t1.c1 = t2.c8) ORDER BY 1, 2;
+                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: t1.c1, t2.c2
+   Sort Key: t1.c1, t2.c2
+   ->  Foreign Scan
+         Output: t1.c1, t2.c2
+         Foreign Namespace: (mongo_fdw_regress.test_tbl2) INNER JOIN (mongo_fdw_regress.test_tbl1)
+         Query document: { "pipeline" : [ { "$lookup" : { "from" : "test_tbl1", "let" : { "ref2" : "$c1" }, "pipeline" : [ { "$match" : { "$expr" : { "$and" : [ { "$eq" : [ "$$ref2", "$c8" ] }, { "$ne" : [ "$$ref2", null ] }, { "$ne" : [ "$c8", null ] } ] } } }, { "$project" : { "ref1" : "$c2" } } ], "as" : "test_tbl1" } }, { "$unwind" : { "path" : "$test_tbl1", "preserveNullAndEmptyArrays" : false } }, { "$project" : { "ref0" : "$c1", "test_tbl1" : { "$numberInt" : "1" } } } ] }
+(7 rows)
+
+--Testcase 147:
+DELETE FROM f_test_tbl1 WHERE c8 IS NULL;
+--Testcase 148:
+DELETE FROM f_test_tbl1 WHERE c8 = 60;
+--Testcase 149:
+DELETE FROM f_test_tbl2 WHERE c1 IS NULL;
+--Testcase 150:
+DELETE FROM f_test_tbl2 WHERE c1 = 50;
+--Testcase 151:
+DROP FOREIGN TABLE f_test_tbl1;
+--Testcase 152:
+DROP FOREIGN TABLE f_test_tbl2;
+--Testcase 153:
+DROP FOREIGN TABLE f_test_tbl3;
+--Testcase 154:
+DROP FOREIGN TABLE f_test_tbl4;
+--Testcase 155:
+DROP FOREIGN TABLE test_text;
+--Testcase 156:
+DROP FOREIGN TABLE test_varchar;
+--Testcase 157:
+DROP TABLE l_test_tbl1;
+--Testcase 158:
+DROP FOREIGN TABLE  ftprt1_p1;
+--Testcase 159:
+DROP FOREIGN TABLE  ftprt1_p2;
+--Testcase 160:
+DROP FOREIGN TABLE  ftprt2_p1;
+--Testcase 161:
+DROP FOREIGN TABLE  ftprt2_p2;
+--Testcase 162:
+DROP TABLE IF EXISTS fprt1;
+--Testcase 163:
+DROP TABLE IF EXISTS fprt2;
+--Testcase 164:
+DROP USER MAPPING FOR public SERVER mongo_server1;
+--Testcase 165:
+DROP SERVER mongo_server1;
+--Testcase 166:
+DROP USER MAPPING FOR public SERVER mongo_server;
+--Testcase 167:
+DROP SERVER mongo_server;
+--Testcase 168:
+DROP EXTENSION mongo_fdw;
