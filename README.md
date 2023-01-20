@@ -8,45 +8,171 @@ Postgres Advanced Server 9.6, 10, 11, 12, 13, and 14.
 
 Installation
 ------------
-The MongoDB FDW depends on the official MongoDB C Driver version 0.8 and
-includes it as a git submodule. If you are cloning this repository for
-the first time, be sure to pass the --recursive option to git clone in
-order to initialize the driver submodule to a usable state.
+To compile the [MongoDB][1] foreign data wrapper, mongo-c and json-c
+libraries are needed. To build and install mongo-c and json-c libraries, there
+are two ways. You can either use script `autogen.sh` or you can manually
+perform all required steps listed.
 
-If checked out this project before and for some reason your submodule
-is not up-to-date, run git submodule update --init.
+## Installation using script
+Number of manual steps needs to be performed to compile and install required
+mongo-c and json-c libraries. If you want to avoid the manual steps, there is a
+shell script available which will download and install the appropriate drivers
+and libraries for you.
 
-When you type `cmake`, the C driver's source code also gets automatically
-compiled and linked.
+Here is how it works:
 
-Note: Make sure you have permission to "/usr/local"
-(default installation location) folder.
+To install mongo-c and json-c libraries at custom locations, you need to
+export environment variables `MONGOC_INSTALL_DIR` and `JSONC_INSTALL_DIR`
+respectively. If these variables are not set then these libraries will be
+installed in the default location. Please note that you need to have the
+required permissions on the directory where you want to install the libraries.
+
+Build with [MongoDB][1]'s legacy branch driver
+   * autogen.sh --with-legacy
+
+Build [MongoDB][1]'s master branch driver
+   * autogen.sh --with-master
+
+The script autogen.sh will do all the necessary steps to build with legacy and
+meta driver accordingly.
+
+## Steps for manual installation
+### mongo-c
+#### meta driver
+1. Download and extract source code of mongoc driver for version `1.17.3`
+
+	```sh
+	wget https://github.com/mongodb/mongo-c-driver/releases/download/1.17.3/mongo-c-driver-1.17.3.tar.gz
+	tar xzf mongo-c-driver-1.17.3.tar.gz
+	rm -rf mongo-c-driver
+	mv mongo-c-driver-1.17.3 mongo-c-driver
+	cd mongo-c-driver
+	```
+
+2. Configure mongoc driver
+
+	```sh
+	cmake -DENABLE_AUTOMATIC_INIT_AND_CLEANUP=OFF .
+	```
+
+	To install at custom location:
+
+	```sh
+	cmake -DCMAKE_INSTALL_PREFIX=YOUR_INSTALLATION_DIRECTORY -DENABLE_AUTOMATIC_INIT_AND_CLEANUP=OFF .
+	```
+
+3. Compile and install
+
+	```sh
+	cmake --build .
+	cmake --build . --target install
+	```
+
+For more details on installation of mongo-c driver, you can refer [here][5].
+
+#### Legacy driver
+* Checkout, extract legacy branch
+
+	```sh
+	wget https://github.com/mongodb/mongo-c-driver/archive/v0.8.tar.gz
+	tar -zxf v0.8.tar.gz
+	rm -rf mongo-c-driver
+	mv  mongo-c-driver-0.8 mongo-c-driver
+	```
+
+### json-c
+1. Download and extract source code
+
+	```sh
+	wget https://github.com/json-c/json-c/archive/json-c-0.15-20200726.tar.gz
+	tar -xzf json-c-0.15-20200726.tar.gz
+	rm -rf json-c
+	mv json-c-json-c-0.15-20200726/ json-c
+	cd json-c
+	```
+
+2. Configure
+
+	```sh
+	cmake .
+	```
+	To install at custom location:
+
+	```sh
+	cmake -DCMAKE_INSTALL_PREFIX=YOUR_INSTALLATION_DIRECTORY .
+	```
+
+3. Compile and install
+
+	```sh
+	make
+	make install
+	```
+
+For more details on installation of json-c library, you can refer [here][6].
+
+### How to compile against mongo-c Meta or Legacy driver?
+To compile against legacy driver, 'Makefile.legacy' must be used and
+'Makefile.meta' must be used to compile against the meta driver. For example,
+this can be achieved by copying required Makefile as shown below:
+For meta,
+
+	cp Makefile.meta Makefile
+
+For legacy,
+
+	cp Makefile.legacy Makefile
+
+The default compilation is with Meta driver.
+
+## Mongo_fdw configuration, compilation and installation
+The `PKG_CONFIG_PATH` environment variable must be set to mongo-c-driver source
+directory for successful compilation as shown below,
+
+```sh
+export PKG_CONFIG_PATH=$YOUR_MONGO_FDW_SOURCE_DIR/mongo-c-driver/src/libmongoc/src:$YOUR_MONGO_FDW_SOURCE_DIR/mongo-c-driver/src/libbson/src
+```
+
+The `LD_LIBRARY_PATH` environment variable must include the path to the mongo-c
+installation directory containing the libmongoc-1.0.so and libbson-1.0.so
+files. For example, assuming the installation directory is /home/mongo-c and
+the libraries were created under it in lib64 sub-directory, then we can define
+the `LD_LIBRARY_PATH` as:
+
+```sh
+export LD_LIBRARY_PATH=/home/mongo-c/lib64:$LD_LIBRARY_PATH
+```
+
+Note: This `LD_LIBRARY_PATH` environment variable setting must be in effect
+when the `pg_ctl` utility is executed to start or restart PostgreSQL or
+EDB Postgres Advanced Server.
+
 
 1. To build on POSIX-compliant systems you need to ensure the
    `pg_config` executable is in your path when you run `make`. This
    executable is typically in your PostgreSQL installation's `bin`
    directory. For example:
 
-    ```
-    $ export PATH=/usr/local/pgsql/bin/:$PATH
+    ```sh
+    export PATH=/usr/local/pgsql/bin/:$PATH
     ```
 
 2. Compile the code using make.
 
-    ```
-    $ make USE_PGXS=1
+    ```sh
+    make USE_PGXS=1
     ```
 
-3.  Finally install the foreign data wrapper.
+3. Finally install the foreign data wrapper.
 
-    ```
-    $ make USE_PGXS=1 install
+    ```sh
+    make USE_PGXS=1 install
     ```
 
 4. Running regression test.
 
-    ```
-    $ make USE_PGXS=1 installcheck
+    ```sh
+    make USE_PGXS=1 installcheck
     ```
    However, make sure to set the `MONGO_HOST`, `MONGO_PORT`, `MONGO_USER_NAME`,
    and `MONGO_PWD` environment variables correctly. The default settings can be
@@ -99,57 +225,13 @@ In order to use MongoDB driver 1.17.0+, take the following steps:
       * `stddev`: is converted to `$stdDevSamp` aggregate function.
       * `stddev_pop`: is converted to `$stdDevPop` aggregate function.
       * `stddev_samp`: is converted to `$stdDevSamp` aggregate function.
-  * LEFT JOIN
-      * The result for NULL comparison of MongoDB is different from PostgreSQL because MongoDB compares NULL value in equal comparison expression, but PostgreSQL does not.
+  * LEFT JOIN, RIGHT JOIN, INNER JOIN:
       * The order for comparing NULL value in MongoDB and PostgreSQL is different ([MongoDB's order][5], [PostgreSQL's order][6])
+      * The nullish comparison results are filtered by adding NULL filter on JOIN clause, which makes JOIN result consistent with PostgreSQL JOIN specification.
   * LIMIT/OFFSET clause
   * JSON arrow operator (json -> text → json): Extracts JSON object field with the given key
-
-Compilation script
------------------
-Number of manual steps needs to be performed to compile and install
-different type of MongoDB drivers and supported libraries. If you want
-to avoid the manual steps, there is a shell script available which will
-download and install the appropriate drivers and libraries for you.
-
-Here is how it works:
-
-To install mongo-c and json-c libraries at custom locations, you need to
-export environment variables `MONGOC_INSTALL_DIR` and `JSONC_INSTALL_DIR`
-respectively. If these variables are not set then these libraries will be
-installed in the default location. Please note that you need to have the
-required permission to install the directory whether it is custom or default.
-
-The `PKG_CONFIG_PATH` environment variable must be set to mongo-c-driver source
-directory for successful compilation as shown below,
-
-```sh
-export PKG_CONFIG_PATH=$YOUR_MONGO_FDW_SOURCE_DIR/mongo-c-driver/src/libmongoc/src:$YOUR_MONGO_FDW_SOURCE_DIR/mongo-c-driver/src/libbson/src
-```
-
-The `LD_LIBRARY_PATH` environment variable must include the path to the mongo-c
-installation directory containing the libmongoc-1.0.so and libbson-1.0.so
-files. For example, assuming the installation directory is /home/mongo-c and
-the libraries were created under it in lib64 sub-directory, then we can define
-the `LD_LIBRARY_PATH` as:
-
-```sh
-export LD_LIBRARY_PATH=/home/mongo-c/lib64:$LD_LIBRARY_PATH
-```
-
-Note: This `LD_LIBRARY_PATH` environment variable setting must be in effect
-when the `pg_ctl` utility is executed to start or restart PostgreSQL or
-EDB Postgres Advanced Server.
-
-Build with [MongoDB][1]'s legacy branch driver
-   * autogen.sh --with-legacy
-
-Build [MongoDB][1]'s master branch driver
-   * autogen.sh --with-master
-
-The script will do all the necessary steps to build with legacy and
-meta driver accordingly.
-
+  * WHERE clause
+  * GROUP BY and HAVING clause
 Usage
 -----
 The following parameters can be set on a MongoDB foreign server object:
@@ -157,6 +239,15 @@ The following parameters can be set on a MongoDB foreign server object:
   * `address`: Address or hostname of the MongoDB server. Defaults to
     `127.0.0.1`
   * `port`: Port number of the MongoDB server. Defaults to `27017`.
+  * `use_remote_estimate`: Controls whether mongo_fdw uses exact rows from
+    remote collection to obtain cost estimates. Default is `false`.
+  * `enable_join_pushdown`: If `true`, pushes the join between two foreign
+	tables from the same foreign server, instead of fetching all the rows
+	for both the tables and performing a join locally. This option can also
+	be set for an individual table, and if any of the tables involved in the
+	join has set it to false then the join will not be pushed down. The
+	table-level value of the option takes precedence over the server-level
+	option value. Default is `true`.
 
 The following options are only supported with meta driver:
 
@@ -170,12 +261,16 @@ The following options are only supported with meta driver:
   * `ssl`: false [default], true to enable ssl. See
     http://mongoc.org/libmongoc/current/mongoc_ssl_opt_t.html to
     understand the options.
-  * `pem_file`: SSL option.
-  * `pem_pwd`: SSL option.
-  * `ca_file`: SSL option.
-  * `ca_dir`: SSL option.
-  * `crl_file`: SSL option.
-  * `weak_cert_validation`: SSL option, false [default].
+  * `pem_file`: The .pem file that contains both the TLS/SSL certificate and
+    key.
+  * `pem_pwd`: The password to decrypt the certificate key file(i.e. pem_file)
+  * `ca_file`: The .pem file that contains the root certificate chain from the
+    Certificate Authority.
+  * `ca_dir`: The absolute path to the `ca_file`.
+  * `crl_file`: The .pem file that contains the Certificate Revocation List.
+  * `weak_cert_validation`: false [default], This is to enable or disable the
+    validation checks for TLS/SSL certificates and allows the use of invalid
+	certificates to connect if set to `true`.
 
 The following parameters can be set on a MongoDB foreign table object:
 
@@ -229,7 +324,7 @@ CREATE FOREIGN TABLE warehouse
 	SERVER mongo_server
 	OPTIONS (database 'db', collection 'warehouse');
 
--- Note: first column of the table must be "_id" of type "name".
+-- Note: first column of the table must be "_id" of type "name", "text", "varchar" or "bpchar".
 
 -- select from table
 SELECT * FROM warehouse WHERE warehouse_id = 1;
@@ -450,7 +545,7 @@ Limitations
       * WHERE clause is true/false or any column/expression with boolean type
       * WHERE clause containing arthmetic operator expression
       * WHERE clause containing comparing operator inside another comparison expression
-
+      * WHERE clause containing the right operand is the JSON/JSONB constant
   * If PostgreSQL query contains whole-row reference under an outer JOIN, mongo_fdw
     cannot support it, because there is no way to expose whole-row reference in BSON document.
     For example SQL:
@@ -460,6 +555,9 @@ Limitations
     group by t1.c2 order by 1;
     ```
 
+Note
+------------
+Mongo FDW can query the whole collection as 1 JSON column by creating a foreign table with name __doc and type is JSON/JSONB. The name __doc is mandatory.
 
 Contributing
 ------------
@@ -479,7 +577,7 @@ also support mongo_fdw.
 
 License
 -------
-Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
+Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
 Portions Copyright © 2012–2014 Citus Data, Inc.
 
 This program is free software: you can redistribute it and/or modify it
@@ -493,5 +591,7 @@ See the [`LICENSE`][4] file for full details.
 [2]: https://github.com/enterprisedb/mongo_fdw/issues/new
 [3]: CONTRIBUTING.md
 [4]: LICENSE
+[5]: http://mongoc.org/libmongoc/1.17.3/installing.html#configuring-the-build
+[6]: https://github.com/json-c/json-c/tree/json-c-0.15-20200726#build-instructions--
 [5]: https://docs.mongodb.com/v4.4/reference/bson-type-comparison-order/
 [6]: https://www.postgresql.org/docs/current/functions-comparisons.html

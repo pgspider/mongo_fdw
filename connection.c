@@ -4,7 +4,7 @@
  * 		Connection management functions for mongo_fdw
  *
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
- * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
+ * Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
  * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
@@ -122,7 +122,7 @@ mongo_get_connection(ForeignServer *server, UserMapping *user,
 	{
 		elog(DEBUG3, "disconnecting mongo_fdw connection %p for option changes to take effect",
 			 entry->conn);
-		MongoDisconnect(entry->conn);
+		mongoDisconnect(entry->conn);
 		entry->conn = NULL;
 	}
 
@@ -171,7 +171,7 @@ mongo_cleanup_connection()
 			continue;
 
 		elog(DEBUG3, "disconnecting mongo_fdw connection %p", entry->conn);
-		MongoDisconnect(entry->conn);
+		mongoDisconnect(entry->conn);
 		entry->conn = NULL;
 	}
 }
@@ -237,7 +237,7 @@ make_new_connection(ConnCacheEntry *entry,
 	Oid			umoid;
 #endif
 
-	entry->conn = MongoConnect(opt);
+	entry->conn = mongoConnect(opt);
 	elog(DEBUG3, "new mongo_fdw connection %p for server \"%s:%d\"",
 			entry->conn, opt->svr_address, opt->svr_port);
 

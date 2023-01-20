@@ -4,7 +4,7 @@
  * 		Foreign-data wrapper for remote MongoDB servers
  *
  * Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
- * Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
+ * Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
  * Portions Copyright (c) 2012–2014 Citus Data, Inc.
  * Portions Copyright (c) 2021, TOSHIBA CORPORATION
  *
@@ -145,6 +145,8 @@
 #define OPTION_NAME_COLLECTION 				"collection"
 #define OPTION_NAME_USERNAME 				"username"
 #define OPTION_NAME_PASSWORD 				"password"
+#define OPTION_NAME_USE_REMOTE_ESTIMATE	    "use_remote_estimate"
+#define OPTION_NAME_COLUMN_NAME				"column_name"
 #ifdef META_DRIVER
 #define OPTION_NAME_READ_PREFERENCE 		"read_preference"
 #define OPTION_NAME_AUTHENTICATION_DATABASE "authentication_database"
@@ -157,6 +159,7 @@
 #define OPTION_NAME_CRL_FILE 				"crl_file"
 #define OPTION_NAME_WEAK_CERT 				"weak_cert_validation"
 #endif
+#define OPTION_NAME_ENABLE_JOIN_PUSHDOWN	"enable_join_pushdown"
 
 /* Default values for option parameters */
 #define DEFAULT_IP_ADDRESS 					"127.0.0.1"
@@ -171,32 +174,12 @@
 #define POSTGRES_TO_UNIX_EPOCH_DAYS 		(POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE)
 #define POSTGRES_TO_UNIX_EPOCH_USECS 		(POSTGRES_TO_UNIX_EPOCH_DAYS * USECS_PER_DAY)
 
-/*
- * Define macro to convert data type.
- */
-#define MONGO_BSON_CONVERSION_DATA_TYPE(iter, pgTypeId, bsonType, val, type_val) \
-{ \
-	switch (bsonType) \
-	{ \
-		case BSON_TYPE_INT32: \
-			val = (type_val) BsonIterInt32(iter); \
-			break; \
-		case BSON_TYPE_INT64: \
-			val = (type_val) BsonIterInt64(iter); \
-			break; \
-		case BSON_TYPE_DOUBLE: \
-			val = (type_val) BsonIterDouble(iter); \
-			break; \
-		case BSON_TYPE_BOOL: \
-			val = (type_val) ((BsonIterBool(iter)) ? true : false); \
-			break; \
-		default: \
-			ereport(ERROR, \
-				(errcode(ERRCODE_FDW_INVALID_DATA_TYPE), \
-				errmsg("cannot convert BSON type to column type"), \
-				errhint("Column type: %u", (uint32) pgTypeId))); \
-	} \
-}
+/* Macro for list API backporting. */
+#if PG_VERSION_NUM < 130000
+	#define mongo_list_concat(l1, l2) list_concat(l1, list_copy(l2))
+#else
+	#define mongo_list_concat(l1, l2) list_concat((l1), (l2))
+#endif
 
 /*
  * MongoValidOption keeps an option name and a context.  When an option is
@@ -211,15 +194,16 @@ typedef struct MongoValidOption
 
 /* Array of options that are valid for mongo_fdw */
 #ifdef META_DRIVER
-static const uint32 ValidOptionCount = 16;
+static const uint32 ValidOptionCount = 20;
 #else
-static const uint32 ValidOptionCount = 6;
+static const uint32 ValidOptionCount = 8;
 #endif
 static const MongoValidOption ValidOptionArray[] =
 {
 	/* Foreign server options */
 	{OPTION_NAME_ADDRESS, ForeignServerRelationId},
 	{OPTION_NAME_PORT, ForeignServerRelationId},
+	{OPTION_NAME_USE_REMOTE_ESTIMATE, ForeignServerRelationId},
 
 #ifdef META_DRIVER
 	{OPTION_NAME_READ_PREFERENCE, ForeignServerRelationId},
@@ -233,10 +217,15 @@ static const MongoValidOption ValidOptionArray[] =
 	{OPTION_NAME_CRL_FILE, ForeignServerRelationId},
 	{OPTION_NAME_WEAK_CERT, ForeignServerRelationId},
 #endif
+	{OPTION_NAME_ENABLE_JOIN_PUSHDOWN, ForeignServerRelationId},
 
 	/* Foreign table options */
 	{OPTION_NAME_DATABASE, ForeignTableRelationId},
 	{OPTION_NAME_COLLECTION, ForeignTableRelationId},
+	{OPTION_NAME_ENABLE_JOIN_PUSHDOWN, ForeignTableRelationId},
+
+	/* Column option */
+	{OPTION_NAME_COLUMN_NAME, AttributeRelationId},
 
 	/* User mapping options */
 	{OPTION_NAME_USERNAME, UserMappingRelationId},
@@ -254,8 +243,11 @@ typedef struct MongoFdwOptions
 	uint16		svr_port;
 	char	   *svr_database;
 	char	   *collectionName;
+	char	   *column_name;
 	char	   *svr_username;
 	char	   *svr_password;
+	bool		use_remote_estimate;	/* use remote estimate for rows */
+	bool        enable_join_pushdown;
 #ifdef META_DRIVER
 	char	   *readPreference;
 	char	   *authenticationDatabase;
@@ -278,6 +270,9 @@ typedef struct MongoPlanerJoinInfo
 	List	   *joinclauses;	/* List of RestrictInfo */
 	char	   *innerel_name;	/* Name of inner relation */
 	char	   *outerrel_name;	/* Name of outer relation */
+	Oid			outerrel_oid;	/* Outer relation oid */
+	Oid			innerrel_oid;	/* Inner relation oid */
+	bool		join_is_sub_query;	/* If join relation is in sub query */
 } MongoPlanerJoinInfo;
 
 /*
@@ -362,10 +357,10 @@ typedef struct MongoFdwScanState
 } MongoFdwScanState;
 
 /*
- * ColumnMapping reprents a hash table entry that maps a column name to column
- * related information.  We construct these hash table entries to speed up the
- * conversion from BSON documents to PostgreSQL tuples; and each hash entry
- * maps the column name to the column's tuple index and its type-related
+ * ColumnMapping represents a hash table entry that maps a column name to
+ * column-related information.  We construct these hash table entries to speed
+ * up the conversion from BSON documents to PostgreSQL tuples, and each hash
+ * entry maps the column name to the column's tuple index and its type-related
  * information.
  */
 typedef struct ColumnMapping
@@ -400,6 +395,10 @@ typedef struct MongoFdwRelationInfo
 	JoinType	jointype;
 	/* joinclauses contains only JOIN/ON conditions for an outer join */
 	List	   *joinclauses;	/* List of RestrictInfo */
+	Oid			baserel_oid;	/* Base relation Oid, only set for base relation */
+	Oid			outerrel_oid;	/* Outer relation Oid */
+	Oid			innerrel_oid;	/* Inner relation Oid */
+	bool		join_is_sub_query;	/* Mark if the join clause is planned in sub query */
 
 	/* Upper relation information */
 	UpperRelationKind stage;
@@ -412,6 +411,7 @@ typedef struct MongoFdwRelationInfo
 	 * representing the relation.
 	 */
 	int			relation_index;
+	MongoFdwOptions *options;  /* Options applicable for this relation */
 } MongoFdwRelationInfo;
 
 /* options.c */
@@ -428,11 +428,7 @@ extern void mongo_cleanup_connection(void);
 extern void mongo_release_connection(MONGO_CONN *conn);
 
 /* Function declarations related to creating the mongo query */
-extern BSON *QueryDocument(Oid relationId,
-						   List *opExpressionList,
-						   ForeignScanState *scanStateNode);
-extern List *mongo_get_column_list(PlannerInfo *root,
-								   RelOptInfo *foreignrel,
+extern List *mongo_get_column_list(PlannerInfo *root, RelOptInfo *foreignrel,
 								   List *scan_var_list);
 extern bool mongo_is_foreign_expr(PlannerInfo *root, RelOptInfo *baserel,
 								  Expr *expression);
@@ -444,4 +440,8 @@ extern Datum mongo_fdw_validator(PG_FUNCTION_ARGS);
 extern int mongo_set_transmission_modes(void);
 extern void mongo_reset_transmission_modes(int nestlevel);
 
+/* deparse.c headers */
+extern const char *mongo_get_jointype_name(JoinType jointype);
+extern void mongo_add_null_check_ref(char *ref_name, BSON *expr);
+extern void mongo_add_null_check_var(Var *column, BSON *qdoc, Oid rel_oid);
 #endif							/* MONGO_FDW_H */

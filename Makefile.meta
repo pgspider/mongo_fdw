@@ -1,6 +1,6 @@
 # mongo_fdw/Makefile.meta
 #
-# Portions Copyright (c) 2004-2021, EnterpriseDB Corporation.
+# Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
 # Portions Copyright © 2012–2014 Citus Data, Inc.
 #
 
@@ -20,13 +20,13 @@ MONGO_INCLUDE = $(shell pkg-config --cflags libmongoc-1.0)
 PG_CPPFLAGS = --std=c99 $(MONGO_INCLUDE) -I$(LIBJSON) -DMETA_DRIVER
 SHLIB_LINK = $(shell pkg-config --libs libmongoc-1.0)
 
-OBJS = connection.o option.o mongo_wrapper_meta.o mongo_fdw.o mongo_query.o $(LIBJSON_OBJS)
+OBJS = connection.o option.o mongo_wrapper_meta.o mongo_fdw.o mongo_query.o deparse.o $(LIBJSON_OBJS)
 
 
 EXTENSION = mongo_fdw
 DATA = mongo_fdw--1.0.sql  mongo_fdw--1.1.sql mongo_fdw--1.0--1.1.sql
 
-REGRESS = server_options connection_validation dml select pushdown extra/aggregates extra/join extra/json extra/jsonb extra/limit extra/enhance
+REGRESS = server_options connection_validation dml select pushdown column_remapping join_pushdown extra/aggregates extra/join extra/json extra/jsonb extra/limit extra/enhance
 REGRESS_OPTS = --load-extension=$(EXTENSION)
 
 #
@@ -50,8 +50,8 @@ ifndef MAJORVERSION
     MAJORVERSION := $(basename $(VERSION))
 endif
 
-ifeq (,$(findstring $(MAJORVERSION), 9.6 10 11 12 13 14))
-    $(error PostgreSQL 9.6, 10, 11, 12, 13, or 14 is required to compile this extension)
+ifeq (,$(findstring $(MAJORVERSION), 13 14 15))
+    $(error PostgreSQL 13, 14 or 15 is required to compile this extension)
 endif
 
 ifdef REGRESS_PREFIX
