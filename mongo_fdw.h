@@ -273,6 +273,10 @@ typedef struct MongoPlanerJoinInfo
 	Oid			outerrel_oid;	/* Outer relation oid */
 	Oid			innerrel_oid;	/* Inner relation oid */
 	bool		join_is_sub_query;	/* If join relation is in sub query */
+	RTEKind		outerrel_rtekind;	/* Outer relation of RangeTblEntry node */
+	RTEKind		innerrel_rtekind;	/* Inner relation of RangeTblEntry node */
+	char	   *outerrel_aliasname;	/* Alias name of outer relation */
+	char	   *innerrel_aliasname;	/* Alias name of inner relation */
 } MongoPlanerJoinInfo;
 
 /*
@@ -415,7 +419,7 @@ typedef struct MongoFdwRelationInfo
 } MongoFdwRelationInfo;
 
 /* options.c */
-extern MongoFdwOptions *mongo_get_options(Oid foreignTableId);
+extern MongoFdwOptions *mongo_get_options(Oid foreignTableId, Oid userid);
 extern void mongo_free_options(MongoFdwOptions *options);
 extern StringInfo mongo_option_names_string(Oid currentContextId);
 

@@ -14,6 +14,12 @@ db.string_agg2.drop();
 db.string_agg3.drop();
 db.string_agg4.drop();
 db.varchar_tbl.drop();
+db.any_value1_tbl.drop();
+db.any_value2_tbl.drop();
+db.t1.drop();
+db.t2.drop();
+db.pagg_test.drop();
+db.float_tb.drop();
 
 // Below queries will create and insert values in collections
 db.onek.insertMany([
@@ -1085,3 +1091,14 @@ db.varchar_tbl.insertMany([
     {_id: NumberInt(2), f1 : "ab" },
     {_id: NumberInt(3), f1 : "abcd" }
 ]);
+
+db.createCollection("any_value1_tbl");
+
+db.any_value2_tbl.insertMany([
+    {_id: NumberInt(1), v : ['hello', 'world'] }
+]);
+
+db.createCollection("t1");
+db.createCollection("t2");
+db.createCollection("pagg_test");
+db.createCollection("float_tb");

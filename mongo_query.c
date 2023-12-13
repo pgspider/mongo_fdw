@@ -311,7 +311,6 @@ append_mongo_value(BSON *queryDocument, const char *keyName, Datum value,
 
 				if (strcmp(keyName, "_id") == 0)
 				{
-					bool		typeVarLength;
 					bson_oid_t	bsonObjectId;
 
 					memset(bsonObjectId.bytes, 0, sizeof(bsonObjectId.bytes));
@@ -2213,6 +2212,10 @@ static void mongo_build_opexpr_doc(BSON *qdoc, OpExpr *node, qdoc_expr_cxt *cont
 				{
 					mongo_aggref_ref *agg_ref = (mongo_aggref_ref *) lfirst(aggcell);
 
+					/* We ignore binary-compatible relabeling on both ends */
+					while (expr && IsA(expr, RelabelType))
+						expr = ((RelabelType *) expr)->arg;
+
 					if (equal(expr, agg_ref->expr))
 					{
 						/* Build reference key like "$refx" */
@@ -2800,7 +2803,11 @@ List *mongo_serialize_plannerInfoList (MongoPlanerInfo *plannerInfo)
 		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->outerrel_oid));
 		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->innerrel_oid));
 		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->join_is_sub_query));
+		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->outerrel_rtekind));
+		plannerInfoList = lappend(plannerInfoList, makeInteger(join_info->innerrel_rtekind));
 
+		plannerInfoList = lappend(plannerInfoList, makeString(join_info->outerrel_aliasname ? join_info->outerrel_aliasname : ""));
+		plannerInfoList = lappend(plannerInfoList, makeString(join_info->innerrel_aliasname ? join_info->innerrel_aliasname : ""));
 	}
 
 	return plannerInfoList;
@@ -2888,6 +2895,18 @@ MongoPlanerInfo *mongo_deserialize_plannerInfoList(List *plannerInfoList)
 		lc = lnext(plannerInfoList, lc);
 
 		join_info->join_is_sub_query = intVal(lfirst(lc));
+		lc = lnext(plannerInfoList, lc);
+
+		join_info->outerrel_rtekind = intVal(lfirst(lc));
+		lc = lnext(plannerInfoList, lc);
+
+		join_info->innerrel_rtekind = intVal(lfirst(lc));
+		lc = lnext(plannerInfoList, lc);
+
+		join_info->outerrel_aliasname = strVal(lfirst(lc));
+		lc = lnext(plannerInfoList, lc);
+
+		join_info->innerrel_aliasname = strVal(lfirst(lc));
 		lc = lnext(plannerInfoList, lc);
 
 		plannerInfo->joininfo_list = lappend(plannerInfo->joininfo_list, join_info);
@@ -3454,7 +3473,9 @@ static void fetch_executor_relation_offset(MongoPlanerJoinInfo *join_info, qdoc_
 	for (i = 1; i<= context->estate->es_range_table_size; ++i)
 	{
 		rte = exec_rt_fetch(i, context->estate);
-		if (join_info->outerrel_oid == rte->relid)
+		if (join_info->outerrel_oid == rte->relid &&
+			join_info->outerrel_rtekind == rte->rtekind &&
+			(rte->alias ? (strcmp(join_info->outerrel_aliasname, rte->alias->aliasname) == 0 ? true : false) : true))
 		{
 			outer_rte_index_offset = i - join_info->outerrel_relid;
 			break;
@@ -3464,7 +3485,9 @@ static void fetch_executor_relation_offset(MongoPlanerJoinInfo *join_info, qdoc_
 	for (i = 1; i<= context->estate->es_range_table_size; ++i)
 	{
 		rte = exec_rt_fetch(i, context->estate);
-		if (join_info->innerrel_oid == rte->relid)
+		if (join_info->innerrel_oid == rte->relid &&
+			join_info->innerrel_rtekind == rte->rtekind &&
+			(rte->alias ? (strcmp(join_info->innerrel_aliasname, rte->alias->aliasname) == 0 ? true : false) : true))
 		{
 			inner_rte_index_offset = i - join_info->innerrel_relid;
 			break;

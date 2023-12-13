@@ -1,0 +1,551 @@
+ -- Before running this file User must create database mongo_fdw_regress and
+-- mongo_fdw_regress1 databases on MongoDB with all permission for
+-- MONGO_USER_NAME user with MONGO_PASS password and ran mongodb_init.sh file
+-- to load collections.
+\set ECHO none
+\c contrib_regression
+--Testcase 1:
+CREATE EXTENSION IF NOT EXISTS mongo_fdw;
+--Testcase 2:
+CREATE SERVER mongo_server FOREIGN DATA WRAPPER mongo_fdw
+  OPTIONS (address :MONGO_HOST, port :MONGO_PORT);
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER mongo_server;
+-- Column name remmaping
+--Testcase 4:
+CREATE FOREIGN TABLE test_json_opt (_id name, json_type text, test_json json, remap_col json)
+ SERVER mongo_server OPTIONS (database 'json_regress', collection 'test_json');
+-- Invalid column
+--Testcase 5:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$project" : { "remap_col" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 6:
+SELECT remap_col FROM test_json_opt;
+ remap_col 
+-----------
+ 
+ 
+ 
+(3 rows)
+
+--Testcase 7:
+EXPLAIN VERBOSE
+SELECT test_json FROM test_json_opt;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: test_json
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 8:
+SELECT test_json FROM test_json_opt;
+                                                        test_json                                                         
+--------------------------------------------------------------------------------------------------------------------------
+ "a scalar"
+ [ "zero", "one", "two", null, "four", "five", [ 1, 2, 3 ], { "f1" : 9 } ]
+ { "field1" : "val1", "field2" : "val2", "field3" : null, "field4" : 4, "field5" : [ 1, 2, 3 ], "field6" : { "f1" : 9 } }
+(3 rows)
+
+--Testcase 9:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json');
+--Testcase 10:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'scalar';
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "scalar" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 11:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'scalar';
+ remap_col  
+------------
+ "a scalar"
+(1 row)
+
+--Testcase 12:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 13:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json');
+--Testcase 14:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 15:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+                                                        remap_col                                                         
+--------------------------------------------------------------------------------------------------------------------------
+ { "field1" : "val1", "field2" : "val2", "field3" : null, "field4" : 4, "field5" : [ 1, 2, 3 ], "field6" : { "f1" : 9 } }
+(1 row)
+
+--Testcase 16:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 17:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field1');
+--Testcase 18:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field1" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 19:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ "val1"
+(1 row)
+
+-- SELECT json null field
+--Testcase 20:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 21:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field3');
+--Testcase 22:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field3" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 23:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ 
+(1 row)
+
+--Testcase 24:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 25:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field4');
+--Testcase 26:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field4" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 27:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ 4
+(1 row)
+
+--Testcase 28:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 29:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field5');
+--Testcase 30:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field5" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 31:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+  remap_col  
+-------------
+ [ 1, 2, 3 ]
+(1 row)
+
+--Testcase 32:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 33:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field6');
+--Testcase 34:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field6" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 35:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+  remap_col   
+--------------
+ { "f1" : 9 }
+(1 row)
+
+--Testcase 36:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 37:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field6.f1');
+--Testcase 38:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field6.f1" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 39:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ 9
+(1 row)
+
+--Testcase 40:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 41:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json');
+--Testcase 42:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'array';
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 43:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'array';
+                                 remap_col                                 
+---------------------------------------------------------------------------
+ [ "zero", "one", "two", null, "four", "five", [ 1, 2, 3 ], { "f1" : 9 } ]
+(1 row)
+
+-- Access to array member is unsupported by $project, result is no value
+--Testcase 44:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 45:
+ALTER FOREIGN TABLE test_json_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.0');
+--Testcase 46:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_json_opt WHERE json_type = 'array';
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_json_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: json_regress.test_json
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json.0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 47:
+SELECT remap_col FROM test_json_opt WHERE json_type = 'array';
+ remap_col 
+-----------
+ 
+(1 row)
+
+-- Column name remmaping
+--Testcase 48:
+CREATE FOREIGN TABLE test_jsonb_opt (_id name, json_type text, test_json jsonb, remap_col jsonb)
+ SERVER mongo_server OPTIONS (database 'jsonb_regress', collection 'test_jsonb');
+-- Invalid column
+--Testcase 49:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$project" : { "remap_col" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 50:
+SELECT remap_col FROM test_jsonb_opt;
+ remap_col 
+-----------
+ 
+ 
+ 
+(3 rows)
+
+--Testcase 51:
+EXPLAIN VERBOSE
+SELECT test_json FROM test_jsonb_opt;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: test_json
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 52:
+SELECT test_json FROM test_jsonb_opt;
+                                                  test_json                                                  
+-------------------------------------------------------------------------------------------------------------
+ "a scalar"
+ ["zero", "one", "two", null, "four", "five", [1, 2, 3], {"f1": 9}]
+ {"field1": "val1", "field2": "val2", "field3": null, "field4": 4, "field5": [1, 2, 3], "field6": {"f1": 9}}
+(3 rows)
+
+--Testcase 53:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json');
+--Testcase 54:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'scalar';
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "scalar" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 55:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'scalar';
+ remap_col  
+------------
+ "a scalar"
+(1 row)
+
+--Testcase 56:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 57:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json');
+--Testcase 58:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 59:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+                                                  remap_col                                                  
+-------------------------------------------------------------------------------------------------------------
+ {"field1": "val1", "field2": "val2", "field3": null, "field4": 4, "field5": [1, 2, 3], "field6": {"f1": 9}}
+(1 row)
+
+--Testcase 60:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 61:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field1');
+--Testcase 62:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field1" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 63:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ "val1"
+(1 row)
+
+-- SELECT json null field
+--Testcase 64:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 65:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field3');
+--Testcase 66:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field3" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 67:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ 
+(1 row)
+
+--Testcase 68:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 69:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "remap_col" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 70:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ 
+(1 row)
+
+--Testcase 71:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+ERROR:  option "column_name" not found
+--Testcase 72:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field5');
+--Testcase 73:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field5" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 74:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ [1, 2, 3]
+(1 row)
+
+--Testcase 75:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 76:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field6');
+--Testcase 77:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field6" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 78:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ {"f1": 9}
+(1 row)
+
+--Testcase 79:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 80:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.field6.f1');
+--Testcase 81:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "object" } } }, { "$project" : { "test_json.field6.f1" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 82:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'object';
+ remap_col 
+-----------
+ 9
+(1 row)
+
+--Testcase 83:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 84:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json');
+--Testcase 85:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'array';
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 86:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'array';
+                             remap_col                              
+--------------------------------------------------------------------
+ ["zero", "one", "two", null, "four", "five", [1, 2, 3], {"f1": 9}]
+(1 row)
+
+-- Access to array member is unsupported by $project, result is no value
+--Testcase 87:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (DROP column_name );
+--Testcase 88:
+ALTER FOREIGN TABLE test_jsonb_opt ALTER COLUMN remap_col OPTIONS (column_name 'test_json.0');
+--Testcase 89:
+EXPLAIN VERBOSE
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'array';
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan on public.test_jsonb_opt  (cost=0.00..0.00 rows=1000 width=32)
+   Output: remap_col
+   Foreign Namespace: jsonb_regress.test_jsonb
+   Query document: { "pipeline" : [ { "$match" : { "json_type" : { "$eq" : "array" } } }, { "$project" : { "test_json.0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 90:
+SELECT remap_col FROM test_jsonb_opt WHERE json_type = 'array';
+ remap_col 
+-----------
+ 
+(1 row)
+
+--Testcase 91:
+DROP USER MAPPING FOR public SERVER mongo_server;
+--Testcase 92:
+DROP SERVER mongo_server CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to foreign table test_json_opt
+drop cascades to foreign table test_jsonb_opt
+--Testcase 93:
+DROP EXTENSION mongo_fdw;

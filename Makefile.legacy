@@ -2,6 +2,7 @@
 #
 # Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
 # Portions Copyright © 2012–2014 Citus Data, Inc.
+# Portions Copyright (c) 2021, TOSHIBA CORPORATION
 #
 
 MODULE_big = mongo_fdw
@@ -46,8 +47,8 @@ ifndef MAJORVERSION
     MAJORVERSION := $(basename $(VERSION))
 endif
 
-ifeq (,$(findstring $(MAJORVERSION), 9.6 10 11 12 13 14))
-    $(error PostgreSQL 9.6, 10, 11, 12, 13, or 14 is required to compile this extension)
+ifeq (,$(findstring $(MAJORVERSION), 13 14 15 16))
+    $(error PostgreSQL 13, 14 15 or 16 is required to compile this extension)
 endif
 
 ifdef REGRESS_PREFIX

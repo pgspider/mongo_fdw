@@ -16,6 +16,9 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+#if PG_VERSION_NUM >= 160000
+#include "utils/varlena.h"
+#endif
 #include "mongo_wrapper.h"
 
 /*
@@ -68,14 +71,45 @@ mongo_fdw_validator(PG_FUNCTION_ARGS)
 		/* If invalid option, display an informative error message */
 		if (!optionValid)
 		{
-			StringInfo	optionNamesString;
+#if PG_VERSION_NUM >= 160000
+			/*
+			 * Unknown option specified, complain about it. Provide a hint
+			 * with a valid option that looks similar, if there is one.
+			 */
+			const char		   *closest_match;
+			ClosestMatchState	match_state;
+			bool				has_valid_options = false;
 
+			initClosestMatch(&match_state, optionName, 4);
+			for (optionIndex = 0; optionIndex < ValidOptionCount; optionIndex++)
+			{
+				const MongoValidOption *validOption;
+
+				validOption = &(ValidOptionArray[optionIndex]);
+
+				if (optionContextId == validOption->optionContextId)
+				{
+					has_valid_options = true;
+					updateClosestMatch(&match_state, validOption->optionName);
+				}
+			}
+			closest_match = getClosestMatch(&match_state);
+			ereport(ERROR,
+					(errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+					 errmsg("invalid option \"%s\"", optionName),
+					 has_valid_options ? closest_match ?
+					 errhint("Perhaps you meant the option \"%s\".",
+							 closest_match) : 0 :
+					 errhint("There are no valid options in this context.")));
+#else
+			StringInfo			optionNamesString;
 			optionNamesString = mongo_option_names_string(optionContextId);
 			ereport(ERROR,
 					(errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
 					 errmsg("invalid option \"%s\"", optionName),
 					 errhint("Valid options in this context are: %s.",
 							 optionNamesString->data)));
+#endif
 		}
 
 		/* If port option is given, error out if its value isn't an integer */
@@ -149,7 +183,7 @@ mongo_option_names_string(Oid currentContextId)
  * and if not present, falls back to default values.
  */
 MongoFdwOptions *
-mongo_get_options(Oid foreignTableId)
+mongo_get_options(Oid foreignTableId, Oid userid)
 {
 	ForeignTable *foreignTable;
 	ForeignServer *foreignServer;
@@ -160,7 +194,7 @@ mongo_get_options(Oid foreignTableId)
 
 	foreignTable = GetForeignTable(foreignTableId);
 	foreignServer = GetForeignServer(foreignTable->serverid);
-	mapping = GetUserMapping(GetUserId(), foreignTable->serverid);
+	mapping = GetUserMapping(userid, foreignTable->serverid);
 
 	optionList = mongo_list_concat(optionList, foreignServer->options);
 	optionList = mongo_list_concat(optionList, foreignTable->options);
@@ -244,13 +278,13 @@ mongo_get_options(Oid foreignTableId)
 
 	/* Default values, if required */
 	if (!options->svr_address)
-		options->svr_address = pstrdup(DEFAULT_IP_ADDRESS);
+		options->svr_address = DEFAULT_IP_ADDRESS;
 
 	if (!options->svr_port)
 		options->svr_port = DEFAULT_PORT_NUMBER;
 
 	if (!options->svr_database)
-		options->svr_database = pstrdup(DEFAULT_DATABASE_NAME);
+		options->svr_database = DEFAULT_DATABASE_NAME;
 
 	if (!options->collectionName)
 		options->collectionName= get_rel_name(foreignTableId);
@@ -262,9 +296,5 @@ void
 mongo_free_options(MongoFdwOptions *options)
 {
 	if (options)
-	{
-		pfree(options->svr_address);
-		pfree(options->svr_database);
 		pfree(options);
-	}
 }
