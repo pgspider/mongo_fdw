@@ -8,6 +8,8 @@ db.test_json.drop();
 db.foo.drop();
 db.jspoptest.drop();
 db.json_tbl.drop();
+db.repeat_json_tbl.drop();
+db.pg_input_is_valid_tbl.drop();
 
 // Below queries will create and insert values in collections
 db.rows.insertMany([
@@ -68,3 +70,6 @@ db.nestjsonb.insertMany([
     {_id : ObjectId("60f10025c6d173cad75bf389"), j : [[NumberInt(14),NumberInt(2),NumberInt(3)]] },
     {_id : ObjectId("60f10025c6d173cad75bf38a"), j : [NumberInt(1),[NumberInt(14),NumberInt(2),NumberInt(3)]] }
 ]);
+
+db.createCollection("repeat_json_tbl");
+db.createCollection("pg_input_is_valid_tbl");

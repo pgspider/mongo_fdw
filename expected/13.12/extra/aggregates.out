@@ -1,0 +1,1727 @@
+-- Before running this file User must create database aggregates_regress
+-- databases on MongoDB with all permission for
+-- user with password and ran mongodb_init.sh
+-- file to load collections.
+\set ECHO none
+SET datestyle TO ISO;
+--Testcase 1:
+CREATE EXTENSION IF NOT EXISTS mongo_fdw;
+--Testcase 2:
+CREATE SERVER mongo_server FOREIGN DATA WRAPPER mongo_fdw
+  OPTIONS (address :MONGO_HOST, port :MONGO_PORT);
+--Testcase 3:
+CREATE USER MAPPING FOR public SERVER mongo_server;
+--Testcase 4:
+CREATE FOREIGN TABLE onek (
+  _id		int4,
+  unique1   int4,
+  unique2   int4,
+  two       int4,
+  four      int4,
+  ten       int4,
+  twenty    int4,
+  hundred   int4,
+  thousand  int4,
+  twothousand int4,
+  fivethous int4,
+  tenthous  int4,
+  odd       int4,
+  even      int4,
+  stringu1  name,
+  stringu2  name,
+  string4   name
+) SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'onek');
+--Testcase 5:
+CREATE FOREIGN TABLE aggtest (
+  _id 		int4,
+  a         int2,
+  b         float4
+) SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'aggtest');
+--Testcase 6:
+CREATE FOREIGN TABLE student (
+  _id 		int4,
+  name      text,
+  age       int4,
+  location  point,
+  gpa       float8
+) SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'student');
+--Testcase 7:
+CREATE FOREIGN TABLE tenk1 (
+  _id		int4,
+  unique1   int4,
+  unique2   int4,
+  two       int4,
+  four      int4,
+  ten       int4,
+  twenty    int4,
+  hundred   int4,
+  thousand  int4,
+  twothousand int4,
+  fivethous int4,
+  tenthous  int4,
+  odd       int4,
+  even      int4,
+  stringu1  name,
+  stringu2  name,
+  string4   name
+) SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'tenk');
+--Testcase 8:
+CREATE FOREIGN TABLE INT8_TBL (
+  _id 		int4,
+  q1        int8,
+  q2        int8
+) SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'int8_tbl');
+--Testcase 9:
+CREATE FOREIGN TABLE INT4_TBL (_id int4, f1 int4)
+ SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'int4_tbl');
+-- avoid bit-exact output here because operations may not be bit-exact.
+--Testcase 10:
+SET extra_float_digits = 0;
+--Testcase 11:
+SELECT avg(four) AS avg_1 FROM onek;
+ avg_1 
+-------
+   1.5
+(1 row)
+
+--Testcase 12:
+SELECT avg(a) AS avg_32 FROM aggtest WHERE a < 100;
+      avg_32      
+------------------
+ 32.6666666666667
+(1 row)
+
+-- In 7.1, avg(float4) is computed using float8 arithmetic.
+-- Round the result to 3 digits to avoid platform-specific results.
+--Testcase 13:
+EXPLAIN VERBOSE SELECT avg(b)::numeric(10,3) AS avg_107_943 FROM aggtest;
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=16)
+   Output: ((avg(b)))::numeric(10,3)
+   Foreign Namespace: aggregates_regress.aggtest
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$avg" : "$b" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 14:
+SELECT avg(b)::numeric(10,3) AS avg_107_943 FROM aggtest;
+ avg_107_943 
+-------------
+     107.943
+(1 row)
+
+--Testcase 15:
+EXPLAIN VERBOSE SELECT sum(four) AS sum_1500 FROM onek;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=8)
+   Output: (sum(four))
+   Foreign Namespace: aggregates_regress.onek
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$sum" : "$four" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 16:
+SELECT sum(four) AS sum_1500 FROM onek;
+ sum_1500 
+----------
+     1500
+(1 row)
+
+--Testcase 17:
+EXPLAIN VERBOSE SELECT sum(a) AS sum_198 FROM aggtest;
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=8)
+   Output: (sum(a))
+   Foreign Namespace: aggregates_regress.aggtest
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$sum" : "$a" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 18:
+SELECT sum(a) AS sum_198 FROM aggtest;
+ sum_198 
+---------
+     198
+(1 row)
+
+--Testcase 19:
+EXPLAIN VERBOSE SELECT sum(b) AS avg_431_773 FROM aggtest;
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=4)
+   Output: (sum(b))
+   Foreign Namespace: aggregates_regress.aggtest
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$sum" : "$b" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 20:
+SELECT sum(b) AS avg_431_773 FROM aggtest;
+ avg_431_773 
+-------------
+     431.773
+(1 row)
+
+--Testcase 21:
+EXPLAIN VERBOSE SELECT max(four) AS max_3 FROM onek;
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=4)
+   Output: (max(four))
+   Foreign Namespace: aggregates_regress.onek
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$max" : "$four" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 22:
+SELECT max(four) AS max_3 FROM onek;
+ max_3 
+-------
+     3
+(1 row)
+
+--Testcase 23:
+EXPLAIN VERBOSE SELECT max(a) AS max_100 FROM aggtest;
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=2)
+   Output: (max(a))
+   Foreign Namespace: aggregates_regress.aggtest
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$max" : "$a" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 24:
+SELECT max(a) AS max_100 FROM aggtest;
+ max_100 
+---------
+     100
+(1 row)
+
+--Testcase 25:
+EXPLAIN VERBOSE SELECT max(aggtest.b) AS max_324_78 FROM aggtest;
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=4)
+   Output: (max(b))
+   Foreign Namespace: aggregates_regress.aggtest
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$max" : "$b" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 26:
+SELECT max(aggtest.b) AS max_324_78 FROM aggtest;
+ max_324_78 
+------------
+     324.78
+(1 row)
+
+--Testcase 27:
+EXPLAIN VERBOSE SELECT stddev_pop(b) FROM aggtest;
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=8)
+   Output: (stddev_pop(b))
+   Foreign Namespace: aggregates_regress.aggtest
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$stdDevPop" : "$b" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 28:
+SELECT stddev_pop(b) FROM aggtest;
+    stddev_pop    
+------------------
+ 131.107032862199
+(1 row)
+
+--Testcase 29:
+EXPLAIN VERBOSE SELECT stddev_samp(b) FROM aggtest;
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Foreign Scan  (cost=0.00..0.00 rows=1 width=8)
+   Output: (stddev_samp(b))
+   Foreign Namespace: aggregates_regress.aggtest
+   Query document: { "pipeline" : [ { "$group" : { "_id" : {  }, "ref0" : { "$stdDevSamp" : "$b" } } }, { "$project" : { "ref0" : { "$numberInt" : "1" } } } ] }
+(4 rows)
+
+--Testcase 30:
+SELECT stddev_samp(b) FROM aggtest;
+   stddev_samp    
+------------------
+ 151.389361431288
+(1 row)
+
+--Testcase 31:
+EXPLAIN VERBOSE SELECT var_pop(b) FROM aggtest;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=8)
+   Output: var_pop(b)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 32:
+SELECT var_pop(b) FROM aggtest;
+     var_pop      
+------------------
+ 17189.0539234823
+(1 row)
+
+--Testcase 33:
+EXPLAIN VERBOSE SELECT var_samp(b) FROM aggtest;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=8)
+   Output: var_samp(b)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 34:
+SELECT var_samp(b) FROM aggtest;
+     var_samp     
+------------------
+ 22918.7385646431
+(1 row)
+
+--Testcase 35:
+EXPLAIN VERBOSE SELECT stddev_pop(b::numeric) FROM aggtest;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Aggregate  (cost=5.00..5.01 rows=1 width=32)
+   Output: stddev_pop((b)::numeric)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 36:
+SELECT stddev_pop(b::numeric) FROM aggtest;
+    stddev_pop    
+------------------
+ 131.107032862199
+(1 row)
+
+--Testcase 37:
+EXPLAIN VERBOSE SELECT stddev_samp(b::numeric) FROM aggtest;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Aggregate  (cost=5.00..5.01 rows=1 width=32)
+   Output: stddev_samp((b)::numeric)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 38:
+SELECT stddev_samp(b::numeric) FROM aggtest;
+   stddev_samp    
+------------------
+ 151.389361431288
+(1 row)
+
+--Testcase 39:
+EXPLAIN VERBOSE SELECT var_pop(b::numeric) FROM aggtest;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Aggregate  (cost=5.00..5.01 rows=1 width=32)
+   Output: var_pop((b)::numeric)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 40:
+SELECT var_pop(b::numeric) FROM aggtest;
+      var_pop       
+--------------------
+ 17189.054065929769
+(1 row)
+
+--Testcase 41:
+EXPLAIN VERBOSE SELECT var_samp(b::numeric) FROM aggtest;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Aggregate  (cost=5.00..5.01 rows=1 width=32)
+   Output: var_samp((b)::numeric)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 42:
+SELECT var_samp(b::numeric) FROM aggtest;
+      var_samp      
+--------------------
+ 22918.738754573025
+(1 row)
+
+-- SQL2003 binary aggregates
+--Testcase 43:
+EXPLAIN VERBOSE SELECT regr_count(b, a) FROM aggtest;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=7.50..7.51 rows=1 width=8)
+   Output: regr_count((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 44:
+SELECT regr_count(b, a) FROM aggtest;
+ regr_count 
+------------
+          4
+(1 row)
+
+--Testcase 45:
+EXPLAIN VERBOSE SELECT regr_sxx(b, a) FROM aggtest;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=7.50..7.51 rows=1 width=8)
+   Output: regr_sxx((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 46:
+SELECT regr_sxx(b, a) FROM aggtest;
+ regr_sxx 
+----------
+     5099
+(1 row)
+
+--Testcase 47:
+EXPLAIN VERBOSE SELECT regr_syy(b, a) FROM aggtest;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=7.50..7.51 rows=1 width=8)
+   Output: regr_syy((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 48:
+SELECT regr_syy(b, a) FROM aggtest;
+     regr_syy     
+------------------
+ 68756.2156939293
+(1 row)
+
+--Testcase 49:
+EXPLAIN VERBOSE SELECT regr_sxy(b, a) FROM aggtest;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=7.50..7.51 rows=1 width=8)
+   Output: regr_sxy((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 50:
+SELECT regr_sxy(b, a) FROM aggtest;
+     regr_sxy     
+------------------
+ 2614.51582155004
+(1 row)
+
+--Testcase 51:
+EXPLAIN VERBOSE SELECT regr_avgx(b, a), regr_avgy(b, a) FROM aggtest;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=15.01..15.02 rows=1 width=16)
+   Output: regr_avgx((b)::double precision, (a)::double precision), regr_avgy((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 52:
+SELECT regr_avgx(b, a), regr_avgy(b, a) FROM aggtest;
+ regr_avgx |    regr_avgy     
+-----------+------------------
+      49.5 | 107.943152273074
+(1 row)
+
+--Testcase 53:
+EXPLAIN VERBOSE SELECT regr_r2(b, a) FROM aggtest;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=7.50..7.51 rows=1 width=8)
+   Output: regr_r2((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 54:
+SELECT regr_r2(b, a) FROM aggtest;
+      regr_r2       
+--------------------
+ 0.0194977982031803
+(1 row)
+
+--Testcase 55:
+EXPLAIN VERBOSE SELECT regr_slope(b, a), regr_intercept(b, a) FROM aggtest;
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=15.01..15.02 rows=1 width=16)
+   Output: regr_slope((b)::double precision, (a)::double precision), regr_intercept((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 56:
+SELECT regr_slope(b, a), regr_intercept(b, a) FROM aggtest;
+    regr_slope     |  regr_intercept  
+-------------------+------------------
+ 0.512750700441271 | 82.5619926012309
+(1 row)
+
+--Testcase 57:
+EXPLAIN VERBOSE SELECT covar_pop(b, a), covar_samp(b, a) FROM aggtest;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=15.01..15.02 rows=1 width=16)
+   Output: covar_pop((b)::double precision, (a)::double precision), covar_samp((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 58:
+SELECT covar_pop(b, a), covar_samp(b, a) FROM aggtest;
+    covar_pop    |    covar_samp    
+-----------------+------------------
+ 653.62895538751 | 871.505273850014
+(1 row)
+
+--Testcase 59:
+EXPLAIN VERBOSE SELECT corr(b, a) FROM aggtest;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=7.50..7.51 rows=1 width=8)
+   Output: corr((b)::double precision, (a)::double precision)
+   ->  Foreign Scan on public.aggtest  (cost=0.00..0.00 rows=1000 width=6)
+         Output: _id, a, b
+         Foreign Namespace: aggregates_regress.aggtest
+         Query document: { "pipeline" : [ { "$project" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 60:
+SELECT corr(b, a) FROM aggtest;
+       corr        
+-------------------
+ 0.139634516517873
+(1 row)
+
+-- test accum and combine functions directly
+--Testcase 61:
+CREATE FOREIGN TABLE regr_test(_id int4, x float8, y float8)
+ SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'regr_test');
+--Testcase 62:
+EXPLAIN VERBOSE SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (10,20,30,80);
+                                                                                                                                          QUERY PLAN                                                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=15.01..15.02 rows=1 width=48)
+   Output: count(*), sum(x), regr_sxx(y, x), sum(y), regr_syy(y, x), regr_sxy(y, x)
+   ->  Foreign Scan on public.regr_test  (cost=0.00..0.00 rows=1000 width=16)
+         Output: _id, x, y
+         Foreign Namespace: aggregates_regress.regr_test
+         Query document: { "pipeline" : [ { "$match" : { "x" : { "$in" : [ { "$numberDouble" : "10.0" }, { "$numberDouble" : "20.0" }, { "$numberDouble" : "30.0" }, { "$numberDouble" : "80.0" } ] } } }, { "$project" : { "x" : { "$numberInt" : "1" }, "y" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 63:
+SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (10,20,30,80);
+ count | sum | regr_sxx | sum  | regr_syy | regr_sxy 
+-------+-----+----------+------+----------+----------
+     4 | 140 |     2900 | 1290 |    83075 |    15050
+(1 row)
+
+--Testcase 64:
+EXPLAIN VERBOSE SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=15.01..15.02 rows=1 width=48)
+   Output: count(*), sum(x), regr_sxx(y, x), sum(y), regr_syy(y, x), regr_sxy(y, x)
+   ->  Foreign Scan on public.regr_test  (cost=0.00..0.00 rows=1000 width=16)
+         Output: _id, x, y
+         Foreign Namespace: aggregates_regress.regr_test
+         Query document: { "pipeline" : [ { "$project" : { "x" : { "$numberInt" : "1" }, "y" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 65:
+SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test;
+ count | sum | regr_sxx | sum  | regr_syy | regr_sxy 
+-------+-----+----------+------+----------+----------
+     5 | 240 |     6280 | 1490 |    95080 |     8680
+(1 row)
+
+--Testcase 66:
+EXPLAIN VERBOSE SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (10,20,30);
+                                                                                                                           QUERY PLAN                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=15.01..15.02 rows=1 width=48)
+   Output: count(*), sum(x), regr_sxx(y, x), sum(y), regr_syy(y, x), regr_sxy(y, x)
+   ->  Foreign Scan on public.regr_test  (cost=0.00..0.00 rows=1000 width=16)
+         Output: _id, x, y
+         Foreign Namespace: aggregates_regress.regr_test
+         Query document: { "pipeline" : [ { "$match" : { "x" : { "$in" : [ { "$numberDouble" : "10.0" }, { "$numberDouble" : "20.0" }, { "$numberDouble" : "30.0" } ] } } }, { "$project" : { "x" : { "$numberInt" : "1" }, "y" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 67:
+SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (10,20,30);
+ count | sum | regr_sxx | sum | regr_syy | regr_sxy 
+-------+-----+----------+-----+----------+----------
+     3 |  60 |      200 | 750 |    20000 |     2000
+(1 row)
+
+--Testcase 68:
+EXPLAIN VERBOSE SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (80,100);
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=15.01..15.02 rows=1 width=48)
+   Output: count(*), sum(x), regr_sxx(y, x), sum(y), regr_syy(y, x), regr_sxy(y, x)
+   ->  Foreign Scan on public.regr_test  (cost=0.00..0.00 rows=1000 width=16)
+         Output: _id, x, y
+         Foreign Namespace: aggregates_regress.regr_test
+         Query document: { "pipeline" : [ { "$match" : { "x" : { "$in" : [ { "$numberDouble" : "80.0" }, { "$numberDouble" : "100.0" } ] } } }, { "$project" : { "x" : { "$numberInt" : "1" }, "y" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 69:
+SELECT count(*), sum(x), regr_sxx(y,x), sum(y),regr_syy(y,x), regr_sxy(y,x)
+FROM regr_test WHERE x IN (80,100);
+ count | sum | regr_sxx | sum | regr_syy | regr_sxy 
+-------+-----+----------+-----+----------+----------
+     2 | 180 |      200 | 740 |    57800 |    -3400
+(1 row)
+
+--Testcase 70:
+DROP TABLE regr_test;
+ERROR:  "regr_test" is not a table
+HINT:  Use DROP FOREIGN TABLE to remove a foreign table.
+-- test count, distinct
+--Testcase 71:
+EXPLAIN VERBOSE SELECT count(four) AS cnt_1000 FROM onek;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=8)
+   Output: count(four)
+   ->  Foreign Scan on public.onek  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+         Foreign Namespace: aggregates_regress.onek
+         Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 72:
+SELECT count(four) AS cnt_1000 FROM onek;
+ cnt_1000 
+----------
+     1000
+(1 row)
+
+--Testcase 73:
+EXPLAIN VERBOSE SELECT count(DISTINCT four) AS cnt_4 FROM onek;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=8)
+   Output: count(DISTINCT four)
+   ->  Foreign Scan on public.onek  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+         Foreign Namespace: aggregates_regress.onek
+         Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 74:
+SELECT count(DISTINCT four) AS cnt_4 FROM onek;
+ cnt_4 
+-------
+     4
+(1 row)
+
+--Testcase 75:
+EXPLAIN VERBOSE select ten, count(*), sum(four) from onek
+group by ten order by ten;
+                                                                                                                                      QUERY PLAN                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=0.01..0.02 rows=1 width=20)
+   Output: ten, (count(*)), (sum(four))
+   Sort Key: onek.ten
+   ->  Foreign Scan  (cost=0.00..0.00 rows=1 width=20)
+         Output: ten, (count(*)), (sum(four))
+         Foreign Namespace: aggregates_regress.onek
+         Query document: { "pipeline" : [ { "$group" : { "_id" : { "ref0" : "$ten" }, "ref1" : { "$sum" : { "$numberInt" : "1" } }, "ref2" : { "$sum" : "$four" } } }, { "$project" : { "ref0" : "$_id.ref0", "ref1" : { "$numberInt" : "1" }, "ref2" : { "$numberInt" : "1" } } } ] }
+(7 rows)
+
+--Testcase 76:
+select ten, count(*), sum(four) from onek
+group by ten order by ten;
+ ten | count | sum 
+-----+-------+-----
+   0 |   100 | 100
+   1 |   100 | 200
+   2 |   100 | 100
+   3 |   100 | 200
+   4 |   100 | 100
+   5 |   100 | 200
+   6 |   100 | 100
+   7 |   100 | 200
+   8 |   100 | 100
+   9 |   100 | 200
+(10 rows)
+
+--Testcase 77:
+EXPLAIN VERBOSE select ten, count(four), sum(DISTINCT four) from onek
+group by ten order by ten;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=49.83..61.83 rows=200 width=20)
+   Output: ten, count(four), sum(DISTINCT four)
+   Group Key: onek.ten
+   ->  Sort  (cost=49.83..52.33 rows=1000 width=8)
+         Output: ten, four
+         Sort Key: onek.ten
+         ->  Foreign Scan on public.onek  (cost=0.00..0.00 rows=1000 width=8)
+               Output: ten, four
+               Foreign Namespace: aggregates_regress.onek
+               Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" }, "ten" : { "$numberInt" : "1" } } } ] }
+(10 rows)
+
+--Testcase 78:
+select ten, count(four), sum(DISTINCT four) from onek
+group by ten order by ten;
+ ten | count | sum 
+-----+-------+-----
+   0 |   100 |   2
+   1 |   100 |   4
+   2 |   100 |   2
+   3 |   100 |   4
+   4 |   100 |   2
+   5 |   100 |   4
+   6 |   100 |   2
+   7 |   100 |   4
+   8 |   100 |   2
+   9 |   100 |   4
+(10 rows)
+
+-- test for outer-level aggregates
+-- this should work
+--Testcase 79:
+EXPLAIN VERBOSE select ten, sum(distinct four) from onek a
+group by ten
+having exists (select 1 from onek b where sum(distinct a.four) = b.four);
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=49.83..64.33 rows=100 width=12)
+   Output: a.ten, sum(DISTINCT a.four)
+   Group Key: a.ten
+   Filter: (alternatives: SubPlan 1 or hashed SubPlan 2)
+   ->  Sort  (cost=49.83..52.33 rows=1000 width=8)
+         Output: a.ten, a.four
+         Sort Key: a.ten
+         ->  Foreign Scan on public.onek a  (cost=0.00..0.00 rows=1000 width=8)
+               Output: a.ten, a.four
+               Foreign Namespace: aggregates_regress.onek
+               Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" }, "ten" : { "$numberInt" : "1" } } } ] }
+   SubPlan 1
+     ->  Foreign Scan on public.onek b  (cost=0.00..0.00 rows=1000 width=0)
+           Filter: (sum(DISTINCT a.four) = b.four)
+           Foreign Namespace: aggregates_regress.onek
+           Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" } } } ] }
+   SubPlan 2
+     ->  Foreign Scan on public.onek b_1  (cost=0.00..0.00 rows=1000 width=4)
+           Output: b_1.four
+           Foreign Namespace: aggregates_regress.onek
+           Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" } } } ] }
+(21 rows)
+
+--Testcase 80:
+select ten, sum(distinct four) from onek a
+group by ten
+having exists (select 1 from onek b where sum(distinct a.four) = b.four);
+ ten | sum 
+-----+-----
+   0 |   2
+   2 |   2
+   4 |   2
+   6 |   2
+   8 |   2
+(5 rows)
+
+-- this should fail because subquery has an agg of its own in WHERE
+--Testcase 81:
+EXPLAIN VERBOSE select ten, sum(distinct four) from onek a
+group by ten
+having exists (select 1 from onek b
+               where sum(distinct a.four + b.four) = b.four);
+ERROR:  aggregate functions are not allowed in WHERE
+LINE 4:                where sum(distinct a.four + b.four) = b.four)...
+                             ^
+--Testcase 82:
+select ten, sum(distinct four) from onek a
+group by ten
+having exists (select 1 from onek b
+               where sum(distinct a.four + b.four) = b.four);
+ERROR:  aggregate functions are not allowed in WHERE
+LINE 4:                where sum(distinct a.four + b.four) = b.four)...
+                             ^
+-- Test handling of sublinks within outer-level aggregates.
+-- Per bug report from Daniel Grace.
+-- select
+--   (select max((select i.unique2 from tenk1 i where i.unique1 = o.unique1)))
+-- from tenk1 o;   -----> BUG
+-- Basic cases
+--Testcase 83:
+explain (costs off)
+  select min(unique1) from tenk1;
+                  QUERY PLAN                  
+----------------------------------------------
+ Foreign Scan
+   Foreign Namespace: aggregates_regress.tenk
+(2 rows)
+
+--Testcase 84:
+select min(unique1) from tenk1;
+ min 
+-----
+   0
+(1 row)
+
+--Testcase 85:
+explain (costs off)
+  select max(unique1) from tenk1;
+                  QUERY PLAN                  
+----------------------------------------------
+ Foreign Scan
+   Foreign Namespace: aggregates_regress.tenk
+(2 rows)
+
+--Testcase 86:
+select max(unique1) from tenk1;
+ max  
+------
+ 9999
+(1 row)
+
+--Testcase 87:
+explain (costs off)
+  select max(unique1) from tenk1 where unique1 < 42;
+                  QUERY PLAN                  
+----------------------------------------------
+ Foreign Scan
+   Foreign Namespace: aggregates_regress.tenk
+(2 rows)
+
+--Testcase 88:
+select max(unique1) from tenk1 where unique1 < 42;
+ max 
+-----
+  41
+(1 row)
+
+--Testcase 89:
+explain (costs off)
+  select max(unique1) from tenk1 where unique1 > 42;
+                  QUERY PLAN                  
+----------------------------------------------
+ Foreign Scan
+   Foreign Namespace: aggregates_regress.tenk
+(2 rows)
+
+--Testcase 90:
+select max(unique1) from tenk1 where unique1 > 42;
+ max  
+------
+ 9999
+(1 row)
+
+-- the planner may choose a generic aggregate here if parallel query is
+-- enabled, since that plan will be parallel safe and the "optimized"
+-- plan, which has almost identical cost, will not be.  we want to test
+-- the optimized plan, so temporarily disable parallel query.
+begin;
+--Testcase 91:
+set local max_parallel_workers_per_gather = 0;
+--Testcase 92:
+explain (costs off)
+  select max(unique1) from tenk1 where unique1 > 42000;
+                  QUERY PLAN                  
+----------------------------------------------
+ Foreign Scan
+   Foreign Namespace: aggregates_regress.tenk
+(2 rows)
+
+--Testcase 93:
+select max(unique1) from tenk1 where unique1 > 42000;
+ max 
+-----
+(0 rows)
+
+rollback;
+-- multi-column index (uses tenk1_thous_tenthous)
+--Testcase 94:
+explain (costs off)
+  select max(tenthous) from tenk1 where thousand = 33;
+                  QUERY PLAN                  
+----------------------------------------------
+ Foreign Scan
+   Foreign Namespace: aggregates_regress.tenk
+(2 rows)
+
+--Testcase 95:
+select max(tenthous) from tenk1 where thousand = 33;
+ max  
+------
+ 9033
+(1 row)
+
+--Testcase 96:
+explain (costs off)
+  select min(tenthous) from tenk1 where thousand = 33;
+                  QUERY PLAN                  
+----------------------------------------------
+ Foreign Scan
+   Foreign Namespace: aggregates_regress.tenk
+(2 rows)
+
+--Testcase 97:
+select min(tenthous) from tenk1 where thousand = 33;
+ min 
+-----
+  33
+(1 row)
+
+-- check parameter propagation into an indexscan subquery
+--Testcase 98:
+explain (costs off)
+  select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
+    from int4_tbl;
+                         QUERY PLAN                         
+------------------------------------------------------------
+ Foreign Scan on int4_tbl
+   Foreign Namespace: aggregates_regress.int4_tbl
+   SubPlan 1
+     ->  Aggregate
+           ->  Foreign Scan on tenk1
+                 Filter: (unique1 > int4_tbl.f1)
+                 Foreign Namespace: aggregates_regress.tenk
+(7 rows)
+
+--Testcase 99:
+select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
+  from int4_tbl;
+     f1      | gt 
+-------------+----
+           0 |  1
+      123456 |   
+     -123456 |  0
+  2147483647 |   
+ -2147483647 |  0
+(5 rows)
+
+-- check some cases that were handled incorrectly in 8.3.0
+--Testcase 100:
+explain (costs off)
+  select distinct max(unique2) from tenk1;
+                     QUERY PLAN                     
+----------------------------------------------------
+ HashAggregate
+   Group Key: (max(unique2))
+   ->  Foreign Scan
+         Foreign Namespace: aggregates_regress.tenk
+(4 rows)
+
+--Testcase 101:
+select distinct max(unique2) from tenk1;
+ max  
+------
+ 9999
+(1 row)
+
+--Testcase 102:
+explain (costs off)
+  select max(unique2) from tenk1 order by 1;
+                     QUERY PLAN                     
+----------------------------------------------------
+ Sort
+   Sort Key: (max(unique2))
+   ->  Foreign Scan
+         Foreign Namespace: aggregates_regress.tenk
+(4 rows)
+
+--Testcase 103:
+select max(unique2) from tenk1 order by 1;
+ max  
+------
+ 9999
+(1 row)
+
+--Testcase 104:
+explain (costs off)
+  select max(unique2) from tenk1 order by max(unique2);
+                     QUERY PLAN                     
+----------------------------------------------------
+ Sort
+   Sort Key: (max(unique2))
+   ->  Foreign Scan
+         Foreign Namespace: aggregates_regress.tenk
+(4 rows)
+
+--Testcase 105:
+select max(unique2) from tenk1 order by max(unique2);
+ max  
+------
+ 9999
+(1 row)
+
+--Testcase 106:
+explain (costs off)
+  select max(unique2) from tenk1 order by max(unique2)+1;
+                     QUERY PLAN                     
+----------------------------------------------------
+ Sort
+   Sort Key: (((max(unique2)) + 1))
+   ->  Foreign Scan
+         Foreign Namespace: aggregates_regress.tenk
+(4 rows)
+
+--Testcase 107:
+select max(unique2) from tenk1 order by max(unique2)+1;
+ max  
+------
+ 9999
+(1 row)
+
+--Testcase 108:
+explain (costs off)
+  select max(unique2), generate_series(1,3) as g from tenk1 order by g desc;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Sort
+   Sort Key: (generate_series(1, 3)) DESC
+   ->  ProjectSet
+         ->  Foreign Scan
+               Foreign Namespace: aggregates_regress.tenk
+(5 rows)
+
+--Testcase 109:
+select max(unique2), generate_series(1,3) as g from tenk1 order by g desc;
+ max  | g 
+------+---
+ 9999 | 3
+ 9999 | 2
+ 9999 | 1
+(3 rows)
+
+-- interesting corner case: constant gets optimized into a seqscan
+--Testcase 110:
+explain (costs off)
+  select max(100) from tenk1;
+                  QUERY PLAN                  
+----------------------------------------------
+ Foreign Scan
+   Foreign Namespace: aggregates_regress.tenk
+(2 rows)
+
+--Testcase 111:
+select max(100) from tenk1;
+ max 
+-----
+ 100
+(1 row)
+
+-- Test combinations of DISTINCT and/or ORDER BY
+--Testcase 112:
+EXPLAIN VERBOSE select array_agg(q1 order by q2)
+  from INT8_TBL;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: array_agg(q1 ORDER BY q2)
+   ->  Foreign Scan on public.int8_tbl  (cost=0.00..0.00 rows=1000 width=16)
+         Output: _id, q1, q2
+         Foreign Namespace: aggregates_regress.int8_tbl
+         Query document: { "pipeline" : [ { "$project" : { "q1" : { "$numberInt" : "1" }, "q2" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 113:
+select array_agg(q1 order by q2)
+  from INT8_TBL;
+                          array_agg                           
+--------------------------------------------------------------
+ {4567890123456789,4567890123456789,123,123,4567890123456789}
+(1 row)
+
+--Testcase 114:
+EXPLAIN VERBOSE select array_agg(q1 order by q1)
+  from INT8_TBL;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: array_agg(q1 ORDER BY q1)
+   ->  Foreign Scan on public.int8_tbl  (cost=0.00..0.00 rows=1000 width=8)
+         Output: _id, q1, q2
+         Foreign Namespace: aggregates_regress.int8_tbl
+         Query document: { "pipeline" : [ { "$project" : { "q1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 115:
+select array_agg(q1 order by q1)
+  from INT8_TBL;
+                          array_agg                           
+--------------------------------------------------------------
+ {123,123,4567890123456789,4567890123456789,4567890123456789}
+(1 row)
+
+--Testcase 116:
+EXPLAIN VERBOSE select array_agg(q1 order by q1 desc)
+  from INT8_TBL;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: array_agg(q1 ORDER BY q1 DESC)
+   ->  Foreign Scan on public.int8_tbl  (cost=0.00..0.00 rows=1000 width=8)
+         Output: _id, q1, q2
+         Foreign Namespace: aggregates_regress.int8_tbl
+         Query document: { "pipeline" : [ { "$project" : { "q1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 117:
+select array_agg(q1 order by q1 desc)
+  from INT8_TBL;
+                          array_agg                           
+--------------------------------------------------------------
+ {4567890123456789,4567890123456789,4567890123456789,123,123}
+(1 row)
+
+--Testcase 118:
+EXPLAIN VERBOSE select array_agg(q2 order by q1 desc)
+  from INT8_TBL;
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: array_agg(q2 ORDER BY q1 DESC)
+   ->  Foreign Scan on public.int8_tbl  (cost=0.00..0.00 rows=1000 width=16)
+         Output: _id, q1, q2
+         Foreign Namespace: aggregates_regress.int8_tbl
+         Query document: { "pipeline" : [ { "$project" : { "q1" : { "$numberInt" : "1" }, "q2" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 119:
+select array_agg(q2 order by q1 desc)
+  from INT8_TBL;
+                           array_agg                           
+---------------------------------------------------------------
+ {123,4567890123456789,-4567890123456789,456,4567890123456789}
+(1 row)
+
+--Testcase 120:
+EXPLAIN VERBOSE select array_agg(distinct f1)
+  from INT4_TBL;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: array_agg(DISTINCT f1)
+   ->  Foreign Scan on public.int4_tbl  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, f1
+         Foreign Namespace: aggregates_regress.int4_tbl
+         Query document: { "pipeline" : [ { "$project" : { "f1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 121:
+select array_agg(distinct f1)
+  from INT4_TBL;
+                 array_agg                 
+-------------------------------------------
+ {-2147483647,-123456,0,123456,2147483647}
+(1 row)
+
+--Testcase 122:
+EXPLAIN VERBOSE select array_agg(distinct f1 order by f1)
+  from INT4_TBL;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: array_agg(DISTINCT f1 ORDER BY f1)
+   ->  Foreign Scan on public.int4_tbl  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, f1
+         Foreign Namespace: aggregates_regress.int4_tbl
+         Query document: { "pipeline" : [ { "$project" : { "f1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 123:
+select array_agg(distinct f1 order by f1)
+  from INT4_TBL;
+                 array_agg                 
+-------------------------------------------
+ {-2147483647,-123456,0,123456,2147483647}
+(1 row)
+
+--Testcase 124:
+EXPLAIN VERBOSE select array_agg(distinct f1 order by f1 desc)
+  from INT4_TBL;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: array_agg(DISTINCT f1 ORDER BY f1 DESC)
+   ->  Foreign Scan on public.int4_tbl  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, f1
+         Foreign Namespace: aggregates_regress.int4_tbl
+         Query document: { "pipeline" : [ { "$project" : { "f1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 125:
+select array_agg(distinct f1 order by f1 desc)
+  from INT4_TBL;
+                 array_agg                 
+-------------------------------------------
+ {2147483647,123456,0,-123456,-2147483647}
+(1 row)
+
+--Testcase 126:
+EXPLAIN VERBOSE select array_agg(distinct f1 order by f1 desc nulls last)
+  from INT4_TBL;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: array_agg(DISTINCT f1 ORDER BY f1 DESC NULLS LAST)
+   ->  Foreign Scan on public.int4_tbl  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, f1
+         Foreign Namespace: aggregates_regress.int4_tbl
+         Query document: { "pipeline" : [ { "$project" : { "f1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 127:
+select array_agg(distinct f1 order by f1 desc nulls last)
+  from INT4_TBL;
+                 array_agg                 
+-------------------------------------------
+ {2147483647,123456,0,-123456,-2147483647}
+(1 row)
+
+-- string_agg tests
+--Testcase 128:
+CREATE FOREIGN TABLE string_agg1(_id int4, a1 text, a2 text)
+ SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'string_agg1');
+--Testcase 129:
+CREATE FOREIGN TABLE string_agg2(_id int4, a1 text, a2 text)
+ SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'string_agg2');
+--Testcase 130:
+CREATE FOREIGN TABLE string_agg3(_id int4, a1 text, a2 text)
+ SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'string_agg3');
+--Testcase 131:
+CREATE FOREIGN TABLE string_agg4(_id int4, a1 text, a2 text)
+ SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'string_agg4');
+--Testcase 132:
+EXPLAIN VERBOSE select string_agg(a1,',') from string_agg1;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: string_agg(a1, ','::text)
+   ->  Foreign Scan on public.string_agg1  (cost=0.00..0.00 rows=1000 width=32)
+         Output: _id, a1, a2
+         Foreign Namespace: aggregates_regress.string_agg1
+         Query document: { "pipeline" : [ { "$project" : { "a1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 133:
+select string_agg(a1,',') from string_agg1;
+   string_agg   
+----------------
+ aaaa,bbbb,cccc
+(1 row)
+
+--Testcase 134:
+EXPLAIN VERBOSE select string_agg(a1,',') from string_agg2;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: string_agg(a1, ','::text)
+   ->  Foreign Scan on public.string_agg2  (cost=0.00..0.00 rows=1000 width=32)
+         Output: _id, a1, a2
+         Foreign Namespace: aggregates_regress.string_agg2
+         Query document: { "pipeline" : [ { "$project" : { "a1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 135:
+select string_agg(a1,',') from string_agg2;
+   string_agg   
+----------------
+ aaaa,bbbb,cccc
+(1 row)
+
+--Testcase 136:
+EXPLAIN VERBOSE select string_agg(a1,'AB') from string_agg3;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: string_agg(a1, 'AB'::text)
+   ->  Foreign Scan on public.string_agg3  (cost=0.00..0.00 rows=1000 width=32)
+         Output: _id, a1, a2
+         Foreign Namespace: aggregates_regress.string_agg3
+         Query document: { "pipeline" : [ { "$project" : { "a1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 137:
+select string_agg(a1,'AB') from string_agg3;
+ string_agg 
+------------
+ bbbbABcccc
+(1 row)
+
+--Testcase 138:
+EXPLAIN VERBOSE select string_agg(a1,',') from string_agg4;
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: string_agg(a1, ','::text)
+   ->  Foreign Scan on public.string_agg4  (cost=0.00..0.00 rows=1000 width=32)
+         Output: _id, a1, a2
+         Foreign Namespace: aggregates_regress.string_agg4
+         Query document: { "pipeline" : [ { "$project" : { "a1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 139:
+select string_agg(a1,',') from string_agg4;
+ string_agg 
+------------
+ 
+(1 row)
+
+-- check some implicit casting cases, as per bug #5564
+--Testcase 140:
+CREATE FOREIGN TABLE VARCHAR_TBL (_id int4, f1 varchar(4))
+ SERVER mongo_server OPTIONS (database 'aggregates_regress', collection 'varchar_tbl');
+--Testcase 141:
+EXPLAIN VERBOSE select string_agg(distinct f1, ',' order by f1) from varchar_tbl;  -- ok
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: string_agg(DISTINCT (f1)::text, ','::text ORDER BY (f1)::text)
+   ->  Foreign Scan on public.varchar_tbl  (cost=0.00..0.00 rows=1000 width=20)
+         Output: _id, f1
+         Foreign Namespace: aggregates_regress.varchar_tbl
+         Query document: { "pipeline" : [ { "$project" : { "f1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 142:
+select string_agg(distinct f1, ',' order by f1) from varchar_tbl;  -- ok
+ string_agg 
+------------
+ a,ab,abcd
+(1 row)
+
+--Testcase 143:
+EXPLAIN VERBOSE select string_agg(distinct f1::text, ',' order by f1) from varchar_tbl;  -- not ok
+ERROR:  in an aggregate with DISTINCT, ORDER BY expressions must appear in argument list
+LINE 1: ...select string_agg(distinct f1::text, ',' order by f1) from v...
+                                                             ^
+--Testcase 144:
+select string_agg(distinct f1::text, ',' order by f1) from varchar_tbl;  -- not ok
+ERROR:  in an aggregate with DISTINCT, ORDER BY expressions must appear in argument list
+LINE 1: select string_agg(distinct f1::text, ',' order by f1) from v...
+                                                          ^
+--Testcase 145:
+EXPLAIN VERBOSE select string_agg(distinct f1, ',' order by f1::text) from varchar_tbl;  -- not ok
+ERROR:  in an aggregate with DISTINCT, ORDER BY expressions must appear in argument list
+LINE 1: ...RBOSE select string_agg(distinct f1, ',' order by f1::text) ...
+                                                             ^
+--Testcase 146:
+select string_agg(distinct f1, ',' order by f1::text) from varchar_tbl;  -- not ok
+ERROR:  in an aggregate with DISTINCT, ORDER BY expressions must appear in argument list
+LINE 1: select string_agg(distinct f1, ',' order by f1::text) from v...
+                                                    ^
+--Testcase 147:
+EXPLAIN VERBOSE select string_agg(distinct f1::text, ',' order by f1::text) from varchar_tbl;  -- ok
+                                           QUERY PLAN                                            
+-------------------------------------------------------------------------------------------------
+ Aggregate  (cost=2.50..2.51 rows=1 width=32)
+   Output: string_agg(DISTINCT (f1)::text, ','::text ORDER BY (f1)::text)
+   ->  Foreign Scan on public.varchar_tbl  (cost=0.00..0.00 rows=1000 width=20)
+         Output: _id, f1
+         Foreign Namespace: aggregates_regress.varchar_tbl
+         Query document: { "pipeline" : [ { "$project" : { "f1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 148:
+select string_agg(distinct f1::text, ',' order by f1::text) from varchar_tbl;  -- ok
+ string_agg 
+------------
+ a,ab,abcd
+(1 row)
+
+-- FILTER tests
+--Testcase 149:
+EXPLAIN VERBOSE select min(unique1) filter (where unique1 > 100) from tenk1;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=5.00..5.01 rows=1 width=4)
+   Output: min(unique1) FILTER (WHERE (unique1 > 100))
+   ->  Foreign Scan on public.tenk1  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+         Foreign Namespace: aggregates_regress.tenk
+         Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 150:
+select min(unique1) filter (where unique1 > 100) from tenk1;
+ min 
+-----
+ 101
+(1 row)
+
+--Testcase 151:
+EXPLAIN VERBOSE select sum(1/ten) filter (where ten > 0) from tenk1;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=7.50..7.51 rows=1 width=8)
+   Output: sum((1 / ten)) FILTER (WHERE (ten > 0))
+   ->  Foreign Scan on public.tenk1  (cost=0.00..0.00 rows=1000 width=4)
+         Output: _id, unique1, unique2, two, four, ten, twenty, hundred, thousand, twothousand, fivethous, tenthous, odd, even, stringu1, stringu2, string4
+         Foreign Namespace: aggregates_regress.tenk
+         Query document: { "pipeline" : [ { "$project" : { "ten" : { "$numberInt" : "1" } } } ] }
+(6 rows)
+
+--Testcase 152:
+select sum(1/ten) filter (where ten > 0) from tenk1;
+ sum  
+------
+ 1000
+(1 row)
+
+--Testcase 153:
+EXPLAIN VERBOSE select ten, sum(distinct four) filter (where four::text ~ '123') from onek a
+group by ten;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=49.83..66.83 rows=200 width=12)
+   Output: ten, sum(DISTINCT four) FILTER (WHERE ((four)::text ~ '123'::text))
+   Group Key: a.ten
+   ->  Sort  (cost=49.83..52.33 rows=1000 width=8)
+         Output: ten, four
+         Sort Key: a.ten
+         ->  Foreign Scan on public.onek a  (cost=0.00..0.00 rows=1000 width=8)
+               Output: ten, four
+               Foreign Namespace: aggregates_regress.onek
+               Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" }, "ten" : { "$numberInt" : "1" } } } ] }
+(10 rows)
+
+--Testcase 154:
+select ten, sum(distinct four) filter (where four::text ~ '123') from onek a
+group by ten;
+ ten | sum 
+-----+-----
+   0 |    
+   1 |    
+   2 |    
+   3 |    
+   4 |    
+   5 |    
+   6 |    
+   7 |    
+   8 |    
+   9 |    
+(10 rows)
+
+--Testcase 155:
+EXPLAIN VERBOSE select ten, sum(distinct four) filter (where four > 10) from onek a
+group by ten
+having exists (select 1 from onek b where sum(distinct a.four) = b.four);
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate  (cost=49.83..66.83 rows=100 width=12)
+   Output: a.ten, sum(DISTINCT a.four) FILTER (WHERE (a.four > 10))
+   Group Key: a.ten
+   Filter: (alternatives: SubPlan 1 or hashed SubPlan 2)
+   ->  Sort  (cost=49.83..52.33 rows=1000 width=8)
+         Output: a.ten, a.four
+         Sort Key: a.ten
+         ->  Foreign Scan on public.onek a  (cost=0.00..0.00 rows=1000 width=8)
+               Output: a.ten, a.four
+               Foreign Namespace: aggregates_regress.onek
+               Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" }, "ten" : { "$numberInt" : "1" } } } ] }
+   SubPlan 1
+     ->  Foreign Scan on public.onek b  (cost=0.00..0.00 rows=1000 width=0)
+           Filter: (sum(DISTINCT a.four) = b.four)
+           Foreign Namespace: aggregates_regress.onek
+           Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" } } } ] }
+   SubPlan 2
+     ->  Foreign Scan on public.onek b_1  (cost=0.00..0.00 rows=1000 width=4)
+           Output: b_1.four
+           Foreign Namespace: aggregates_regress.onek
+           Query document: { "pipeline" : [ { "$project" : { "four" : { "$numberInt" : "1" } } } ] }
+(21 rows)
+
+--Testcase 156:
+select ten, sum(distinct four) filter (where four > 10) from onek a
+group by ten
+having exists (select 1 from onek b where sum(distinct a.four) = b.four);
+ ten | sum 
+-----+-----
+   0 |    
+   2 |    
+   4 |    
+   6 |    
+   8 |    
+(5 rows)
+
+-- subquery in FILTER clause (PostgreSQL extension)
+--Testcase 157:
+EXPLAIN VERBOSE select sum(unique1) FILTER (WHERE
+  unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=7.50..7.51 rows=1 width=8)
+   Output: sum(tenk1.unique1) FILTER (WHERE (hashed SubPlan 1))
+   ->  Foreign Scan on public.tenk1  (cost=0.00..0.00 rows=1000 width=4)
+         Output: tenk1._id, tenk1.unique1, tenk1.unique2, tenk1.two, tenk1.four, tenk1.ten, tenk1.twenty, tenk1.hundred, tenk1.thousand, tenk1.twothousand, tenk1.fivethous, tenk1.tenthous, tenk1.odd, tenk1.even, tenk1.stringu1, tenk1.stringu2, tenk1.string4
+         Foreign Namespace: aggregates_regress.tenk
+         Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+   SubPlan 1
+     ->  Foreign Scan on public.onek  (cost=0.00..0.00 rows=1000 width=4)
+           Output: onek.unique1
+           Foreign Namespace: aggregates_regress.onek
+           Query document: { "pipeline" : [ { "$match" : { "unique1" : { "$lt" : { "$numberInt" : "100" } } } }, { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+(11 rows)
+
+--Testcase 158:
+select sum(unique1) FILTER (WHERE
+  unique1 IN (SELECT unique1 FROM onek where unique1 < 100)) FROM tenk1;
+ sum  
+------
+ 4950
+(1 row)
+
+-- test coverage for aggregate combine/serial/deserial functions
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+--Testcase 159:
+SET parallel_setup_cost = 0;
+--Testcase 160:
+SET parallel_tuple_cost = 0;
+--Testcase 161:
+SET min_parallel_table_scan_size = 0;
+--Testcase 162:
+SET max_parallel_workers_per_gather = 4;
+--Testcase 163:
+SET parallel_leader_participation = off;
+--Testcase 164:
+SET enable_indexonlyscan = off;
+-- variance(int4) covers numeric_poly_combine
+-- sum(int8) covers int8_avg_combine
+-- regr_count(float8, float8) covers int8inc_float8_float8 and aggregates with > 1 arg
+--Testcase 165:
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT variance(unique1::int4), sum(unique1::int8), regr_count(unique1::float8, unique1::float8)
+FROM (SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1) u;
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: variance(tenk1.unique1), sum((tenk1.unique1)::bigint), regr_count((tenk1.unique1)::double precision, (tenk1.unique1)::double precision)
+   ->  Append
+         ->  Foreign Scan on public.tenk1
+               Output: tenk1.unique1
+               Foreign Namespace: aggregates_regress.tenk
+               Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+         ->  Foreign Scan on public.tenk1 tenk1_1
+               Output: tenk1_1.unique1
+               Foreign Namespace: aggregates_regress.tenk
+               Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+         ->  Foreign Scan on public.tenk1 tenk1_2
+               Output: tenk1_2.unique1
+               Foreign Namespace: aggregates_regress.tenk
+               Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+         ->  Foreign Scan on public.tenk1 tenk1_3
+               Output: tenk1_3.unique1
+               Foreign Namespace: aggregates_regress.tenk
+               Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+(19 rows)
+
+--Testcase 166:
+SELECT variance(unique1::int4), sum(unique1::int8), regr_count(unique1::float8, unique1::float8)
+FROM (SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1) u;
+       variance       |    sum    | regr_count 
+----------------------+-----------+------------
+ 8333541.588539713493 | 199980000 |      40000
+(1 row)
+
+-- variance(int8) covers numeric_combine
+-- avg(numeric) covers numeric_avg_combine
+--Testcase 167:
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT variance(unique1::int8), avg(unique1::numeric)
+FROM (SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1) u;
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: variance((tenk1.unique1)::bigint), avg((tenk1.unique1)::numeric)
+   ->  Append
+         ->  Foreign Scan on public.tenk1
+               Output: tenk1.unique1
+               Foreign Namespace: aggregates_regress.tenk
+               Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+         ->  Foreign Scan on public.tenk1 tenk1_1
+               Output: tenk1_1.unique1
+               Foreign Namespace: aggregates_regress.tenk
+               Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+         ->  Foreign Scan on public.tenk1 tenk1_2
+               Output: tenk1_2.unique1
+               Foreign Namespace: aggregates_regress.tenk
+               Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+         ->  Foreign Scan on public.tenk1 tenk1_3
+               Output: tenk1_3.unique1
+               Foreign Namespace: aggregates_regress.tenk
+               Query document: { "pipeline" : [ { "$project" : { "unique1" : { "$numberInt" : "1" } } } ] }
+(19 rows)
+
+--Testcase 168:
+SELECT variance(unique1::int8), avg(unique1::numeric)
+FROM (SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1
+      UNION ALL SELECT * FROM tenk1) u;
+       variance       |          avg          
+----------------------+-----------------------
+ 8333541.588539713493 | 4999.5000000000000000
+(1 row)
+
+ROLLBACK;
+-- Make sure that generation of HashAggregate for uniqification purposes
+-- does not lead to array overflow due to unexpected duplicate hash keys
+-- see CAFeeJoKKu0u+A_A9R9316djW-YW3-+Gtgvy3ju655qRHR3jtdA@mail.gmail.com
+--Testcase 169:
+explain (costs off)
+  select 1 from tenk1
+   where (hundred, thousand) in (select twothousand, twothousand from onek);
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Hash Join
+   Hash Cond: (tenk1.hundred = onek.twothousand)
+   ->  Foreign Scan on tenk1
+         Filter: (hundred = thousand)
+         Foreign Namespace: aggregates_regress.tenk
+   ->  Hash
+         ->  HashAggregate
+               Group Key: onek.twothousand, onek.twothousand
+               ->  Foreign Scan on onek
+                     Foreign Namespace: aggregates_regress.onek
+(10 rows)
+
+--
+-- Hash Aggregation Spill tests
+--
+--Testcase 170:
+set enable_sort=false;
+--Testcase 171:
+set work_mem='64kB';
+--Testcase 172:
+select unique1, count(*), sum(twothousand) from tenk1
+group by unique1
+having sum(fivethous) > 4975
+order by sum(twothousand);
+ unique1 | count | sum  
+---------+-------+------
+    4976 |     1 |  976
+    4977 |     1 |  977
+    4978 |     1 |  978
+    4979 |     1 |  979
+    4980 |     1 |  980
+    4981 |     1 |  981
+    4982 |     1 |  982
+    4983 |     1 |  983
+    4984 |     1 |  984
+    4985 |     1 |  985
+    4986 |     1 |  986
+    4987 |     1 |  987
+    4988 |     1 |  988
+    4989 |     1 |  989
+    4990 |     1 |  990
+    4991 |     1 |  991
+    4992 |     1 |  992
+    4993 |     1 |  993
+    4994 |     1 |  994
+    4995 |     1 |  995
+    4996 |     1 |  996
+    4997 |     1 |  997
+    4998 |     1 |  998
+    4999 |     1 |  999
+    9976 |     1 | 1976
+    9977 |     1 | 1977
+    9978 |     1 | 1978
+    9979 |     1 | 1979
+    9980 |     1 | 1980
+    9981 |     1 | 1981
+    9982 |     1 | 1982
+    9983 |     1 | 1983
+    9984 |     1 | 1984
+    9985 |     1 | 1985
+    9986 |     1 | 1986
+    9987 |     1 | 1987
+    9988 |     1 | 1988
+    9989 |     1 | 1989
+    9990 |     1 | 1990
+    9991 |     1 | 1991
+    9992 |     1 | 1992
+    9993 |     1 | 1993
+    9994 |     1 | 1994
+    9995 |     1 | 1995
+    9996 |     1 | 1996
+    9997 |     1 | 1997
+    9998 |     1 | 1998
+    9999 |     1 | 1999
+(48 rows)
+
+--Testcase 173:
+set work_mem to default;
+--Testcase 174:
+set enable_sort to default;
+--Testcase 175:
+DROP USER MAPPING FOR public SERVER mongo_server;
+--Testcase 176:
+DROP EXTENSION mongo_fdw CASCADE;
+NOTICE:  drop cascades to 13 other objects
+DETAIL:  drop cascades to server mongo_server
+drop cascades to foreign table onek
+drop cascades to foreign table aggtest
+drop cascades to foreign table student
+drop cascades to foreign table tenk1
+drop cascades to foreign table int8_tbl
+drop cascades to foreign table int4_tbl
+drop cascades to foreign table regr_test
+drop cascades to foreign table string_agg1
+drop cascades to foreign table string_agg2
+drop cascades to foreign table string_agg3
+drop cascades to foreign table string_agg4
+drop cascades to foreign table varchar_tbl

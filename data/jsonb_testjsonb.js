@@ -2,6 +2,7 @@ use jsonb_regress
 db.testjsonb.drop();
 db.test_jsonb_subscript.drop();
 db.jsonb_tbl.drop();
+db.test_jsonb_subscript_text.drop();
 db.testjsonb.insertMany([
 {"_id": NumberInt(1), "j": {"line": NumberInt(1), "date": "CB", "node": "AA"}},
 {"_id": NumberInt(2), "j": {"cleaned": false, "status": NumberInt(59), "line": NumberInt(2), "disabled": false, "node": "CBB"}},

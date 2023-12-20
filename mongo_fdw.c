@@ -53,15 +53,17 @@
 #include "utils/guc.h"
 #include "utils/float.h"
 #include "optimizer/tlist.h"
-
+#if (PG_VERSION_NUM >= 130010 && PG_VERSION_NUM < 140000) || (PG_VERSION_NUM >= 140007 && PG_VERSION_NUM < 150000) || (PG_VERSION_NUM >= 150003)
+#include "optimizer/inherit.h"
+#endif
 /* Declarations for dynamic loading */
 PG_MODULE_MAGIC;
 
 /*
  * In PG 9.5.1 the number will be 90501,
- * our version is 5.4.0 so number will be 50400
+ * our version is 5.5.0 so number will be 50500
  */
-#define CODE_VERSION   50400
+#define CODE_VERSION   50500
 
 extern PGDLLEXPORT void _PG_init(void);
 PG_FUNCTION_INFO_V1(mongo_fdw_handler);
@@ -148,7 +150,7 @@ static void mongoGetForeignJoinPaths(PlannerInfo *root, RelOptInfo *joinrel,
 /*
  * Helper functions
  */
-static double foreign_table_document_count(Oid foreignTableId);
+static double foreign_table_document_count(Oid foreignTableId, Oid userid);
 static void fill_tuple_slot(const BSON *bsonDocument,
 							const char *bsonDocumentKey,
 							MongoPlanerInfo *plannerInfo,
@@ -183,7 +185,7 @@ static int mongo_acquire_sample_rows(Relation relation,
 									 double *totalDeadRowCount);
 static void mongo_fdw_exit(int code, Datum arg);
 static void mongo_BsonToStringValue(StringInfo output, BSON_ITERATOR *bsIterator, BSON_TYPE bsonType);
-static void mongo_get_join_planner_info(RelOptInfo *scanrel, MongoPlanerInfo *plannerInfo);
+static void mongo_get_join_planner_info(PlannerInfo *root, RelOptInfo *scanrel, MongoPlanerInfo *plannerInfo);
 static void mongo_get_limit_info(PlannerInfo *root, MongoPlanerInfo *plannerInfo);
 static bool mongo_foreign_join_ok(PlannerInfo *root, RelOptInfo *joinrel,
 								  JoinType jointype, RelOptInfo *outerrel,
@@ -316,6 +318,7 @@ mongoGetForeignRelSize(PlannerInfo *root,
 	MongoFdwRelationInfo *fpinfo;
 	MongoFdwOptions *options;
 	ListCell   *lc;
+	Oid			userid;
 
 	/*
 	 * We use MongoFdwRelationInfo to pass various information to subsequent
@@ -349,9 +352,19 @@ mongoGetForeignRelSize(PlannerInfo *root,
 			fpinfo->local_conds = lappend(fpinfo->local_conds, ri);
 	}
 
-
+#if PG_VERSION_NUM >= 160000
+	/*
+	 * If the table or the server is configured to use remote estimates,
+	 * identify which user to do remote access as during planning.  This
+	 * should match what ExecCheckPermissions() does.  If we fail due to lack
+	 * of permissions, the query would have failed at runtime anyway.
+	 */
+	userid = OidIsValid(baserel->userid) ? baserel->userid : GetUserId();
+#else
+	userid = GetUserId();
+#endif
 	/* Fetch options */
-	options = mongo_get_options(foreigntableid);
+	options = mongo_get_options(foreigntableid, userid);
 
 	/*
 	 * Retrieve exact document count for remote collection if asked, otherwise,
@@ -359,7 +372,7 @@ mongoGetForeignRelSize(PlannerInfo *root,
 	 */
 	if (options->use_remote_estimate)
 	{
-		double		documentCount = foreign_table_document_count(foreigntableid);
+		double		documentCount = foreign_table_document_count(foreigntableid, userid);
 
 		if (documentCount > 0.0)
 		{
@@ -402,9 +415,22 @@ mongoGetForeignPaths(PlannerInfo *root,
 	MongoFdwOptions *options;
 	Cost		startupCost = 0.0;
 	Cost		totalCost = 0.0;
+	Oid			userid;
+
+	/*
+	 * If the table or the server is configured to use remote estimates,
+	 * identify which user to do remote access as during planning.  This
+	 * should match what ExecCheckPermissions() does.  If we fail due to lack
+	 * of permissions, the query would have failed at runtime anyway.
+	 */
+#if PG_VERSION_NUM >= 160000
+	userid = OidIsValid(baserel->userid) ? baserel->userid : GetUserId();
+#else
+	userid = GetUserId();
+#endif
 
 	/* Fetch options */
-	options = mongo_get_options(foreigntableid);
+	options = mongo_get_options(foreigntableid, userid);
 
 	/*
 	 * Retrieve exact document count for remote collection if asked, otherwise,
@@ -412,7 +438,7 @@ mongoGetForeignPaths(PlannerInfo *root,
 	 */
 	if (options->use_remote_estimate)
 	{
-		double 		documentCount = foreign_table_document_count(foreigntableid);
+		double 		documentCount = foreign_table_document_count(foreigntableid, userid);
 
 		if (documentCount > 0.0)
 		{
@@ -532,7 +558,7 @@ mongoGetForeignPlan(PlannerInfo *root,
 #if PG_VERSION_NUM >= 150000
 		has_limit = boolVal(list_nth(best_path->fdw_private,
 									 FdwPathPrivateHasLimit));
-#else		
+#else
 		has_limit = intVal(list_nth(best_path->fdw_private,
 									FdwPathPrivateHasLimit));
 #endif
@@ -781,7 +807,7 @@ mongoGetForeignPlan(PlannerInfo *root,
 		MongoFdwRelationInfo *f_joininfo = (MongoFdwRelationInfo *) scanrel->fdw_private;
 
 		plannerInfo->jointype = f_joininfo->jointype;
-		mongo_get_join_planner_info(scanrel, plannerInfo);
+		mongo_get_join_planner_info(root, scanrel, plannerInfo);
 	}
 
 	plannerInfoList = mongo_serialize_plannerInfoList(plannerInfo);
@@ -815,14 +841,29 @@ mongoExplainForeignScan(ForeignScanState *node, ExplainState *es)
 	StringInfo	namespaceName;
 	RangeTblEntry *rte;
 	int			rtindex;
+	Oid			userid;
 
 	if (fsplan->scan.scanrelid > 0)
 		rtindex = fsplan->scan.scanrelid;
 	else
+#if PG_VERSION_NUM >= 160000
+		rtindex = bms_next_member(fsplan->fs_base_relids, -1);
+#else
 		rtindex = bms_next_member(fsplan->fs_relids, -1);
+#endif
+
+#if PG_VERSION_NUM >= 160000
+	/*
+	 * Identify which user to do the remote access as.  This should match what
+	 * ExecCheckPermissions() does.
+	 */
+	userid = OidIsValid(fsplan->checkAsUser) ? fsplan->checkAsUser : GetUserId();
+#else
+	userid = GetUserId();
+#endif
 	rte = exec_rt_fetch(rtindex, estate);
 
-	options = mongo_get_options(rte->relid);
+	options = mongo_get_options(rte->relid, userid);
 
 	if (fsstate->plannerInfo->joininfo_list != NIL)
 	{
@@ -869,9 +910,16 @@ mongoExplainForeignModify(ModifyTableState *mtstate,
 	MongoFdwOptions *options;
 	StringInfo	namespaceName;
 	Oid			foreignTableId;
+	Oid			userid;
+#if PG_VERSION_NUM >= 160000
+	/* Identify which user to do the remote access as. */
+	userid = ExecGetResultRelCheckAsUser(rinfo, mtstate->ps.state);
+#else
+	userid = GetUserId();
+#endif
 
 	foreignTableId = RelationGetRelid(rinfo->ri_RelationDesc);
-	options = mongo_get_options(foreignTableId);
+	options = mongo_get_options(foreignTableId, userid);
 
 	/* Construct fully qualified collection name */
 	namespaceName = makeStringInfo();
@@ -909,18 +957,26 @@ mongoBeginForeignScan(ForeignScanState *node, int eflags)
 
 	/*
 	 * Identify which user to do the remote access as.  This should match what
-	 * ExecCheckRTEPerms() does.  In case of a join or aggregate, use the
+	 * ExecCheckPermissions() does.  In case of a join or aggregate, use the
 	 * lowest-numbered member RTE as a representative; we would get the same
 	 * result from any.
 	 */
+#if PG_VERSION_NUM >= 160000
+	userid = OidIsValid(fsplan->checkAsUser) ? fsplan->checkAsUser : GetUserId();
+	if (fsplan->scan.scanrelid > 0)
+		rtindex = fsplan->scan.scanrelid;
+	else
+		rtindex = bms_next_member(fsplan->fs_base_relids, -1);
+	rte = exec_rt_fetch(rtindex, estate);
+#else
 	if (fsplan->scan.scanrelid > 0)
 		rtindex = fsplan->scan.scanrelid;
 	else
 		rtindex = bms_next_member(fsplan->fs_relids, -1);
 	rte = exec_rt_fetch(rtindex, estate);
 	userid = rte->checkAsUser ? rte->checkAsUser : GetUserId();
-
-	options = mongo_get_options(rte->relid);
+#endif
+	options = mongo_get_options(rte->relid, userid);
 
 	fsstate = (MongoFdwScanState *) palloc0(sizeof(MongoFdwScanState));
 	node->fdw_state = (void *) fsstate;
@@ -1122,14 +1178,31 @@ mongoPlanForeignModify(PlannerInfo *root,
 	}
 	else if (operation == CMD_UPDATE)
 	{
-#if PG_VERSION_NUM >= 90500
-		Bitmapset  *tmpset = bms_copy(rte->updatedCols);
+#if PG_VERSION_NUM < 90500
+		Bitmapset  *allUpdatedCols = bms_copy(rte->modifiedCols);
+#elif (PG_VERSION_NUM >= 130010 && PG_VERSION_NUM < 140000) || (PG_VERSION_NUM >= 140007 && PG_VERSION_NUM < 150000) || (PG_VERSION_NUM >= 150003)
+		int			col;
+		RelOptInfo *rel = find_base_rel(root, resultRelation);
+		Bitmapset  *allUpdatedCols = get_rel_all_updated_cols(root, rel);
 #else
-		Bitmapset  *tmpset = bms_copy(rte->modifiedCols);
+		Bitmapset  *allUpdatedCols = bms_copy(rte->updatedCols);
 #endif
+
+#if (PG_VERSION_NUM >= 130010 && PG_VERSION_NUM < 140000) || (PG_VERSION_NUM >= 140007 && PG_VERSION_NUM < 150000) || (PG_VERSION_NUM >= 150003)
+		col = -1;
+		while ((col = bms_next_member(allUpdatedCols, col)) >= 0)
+		{
+			/* bit numbers are offset by FirstLowInvalidHeapAttributeNumber */
+			AttrNumber	attno = col + FirstLowInvalidHeapAttributeNumber;
+
+			if (attno <= InvalidAttrNumber) /* shouldn't happen */
+				elog(ERROR, "system-column update is not supported");
+			targetAttrs = lappend_int(targetAttrs, attno);
+		}
+#else
 		AttrNumber	col;
 
-		while ((col = bms_first_member(tmpset)) >= 0)
+		while ((col = bms_first_member(allUpdatedCols)) >= 0)
 		{
 			col += FirstLowInvalidHeapAttributeNumber;
 			if (col <= InvalidAttrNumber)	/* Shouldn't happen */
@@ -1144,6 +1217,7 @@ mongoPlanForeignModify(PlannerInfo *root,
 
 			targetAttrs = lappend_int(targetAttrs, col);
 		}
+#endif
 		/* We also want the rowid column to be available for the update */
 		targetAttrs = lcons_int(1, targetAttrs);
 	}
@@ -1196,7 +1270,12 @@ mongoBeginForeignModify(ModifyTableState *mtstate,
 		return;
 
 	foreignTableId = RelationGetRelid(rel);
+#if PG_VERSION_NUM >= 160000
+	/* Identify which user to do the remote access as. */
+	userid = ExecGetResultRelCheckAsUser(resultRelInfo, mtstate->ps.state);
+#else
 	userid = GetUserId();
+#endif
 
 	/* Get info about foreign table. */
 	table = GetForeignTable(foreignTableId);
@@ -1207,7 +1286,7 @@ mongoBeginForeignModify(ModifyTableState *mtstate,
 	fmstate = (MongoFdwModifyState *) palloc0(sizeof(MongoFdwModifyState));
 
 	fmstate->rel = rel;
-	fmstate->options = mongo_get_options(foreignTableId);
+	fmstate->options = mongo_get_options(foreignTableId, userid);
 
 	/*
 	 * Get connection to the foreign server.  Connection manager will
@@ -1275,7 +1354,6 @@ mongoExecForeignInsert(EState *estate,
 					   TupleTableSlot *planSlot)
 {
 	BSON	   *bsonDoc;
-	Oid			typoid;
 	Datum		value;
 	bool		isnull = false;
 	MongoFdwModifyState *fmstate;
@@ -1283,8 +1361,6 @@ mongoExecForeignInsert(EState *estate,
 	fmstate = (MongoFdwModifyState *) resultRelInfo->ri_FdwState;
 
 	bsonDoc = bsonCreate();
-
-	typoid = get_atttype(RelationGetRelid(resultRelInfo->ri_RelationDesc), 1);
 
 	/* Get following parameters from slot */
 	if (slot != NULL && fmstate->target_attrs != NIL)
@@ -1579,13 +1655,12 @@ mongoEndForeignModify(EState *estate, ResultRelInfo *resultRelInfo)
  * 		the document count.  On failure, the function returns -1.0.
  */
 static double
-foreign_table_document_count(Oid foreignTableId)
+foreign_table_document_count(Oid foreignTableId, Oid userid)
 {
 	MongoFdwOptions *options;
 	MONGO_CONN *mongoConnection;
 	const BSON *emptyQuery = NULL;
 	double 		documentCount;
-	Oid			userid = GetUserId();
 	ForeignServer *server;
 	UserMapping *user;
 	ForeignTable *table;
@@ -1596,7 +1671,7 @@ foreign_table_document_count(Oid foreignTableId)
 	user = GetUserMapping(userid, server->serverid);
 
 	/* Resolve foreign table options; and connect to mongo server */
-	options = mongo_get_options(foreignTableId);
+	options = mongo_get_options(foreignTableId, userid);
 
 	/*
 	 * Get connection to the foreign server.  Connection manager will
@@ -1665,11 +1740,11 @@ fill_tuple_slot_agg(const BSON *bsonDocument,
 		BSON_TYPE	bsonType = bsonIterType(&bsonIterator);
 		Oid			pgTypeId = InvalidOid;
 		Oid			pgArrayTypeId = InvalidOid;
-		int32		pgTypeMod;
+		int32		pgTypeMod = -1;
 		bool		compatibleTypes = false;
 		bool		handleFound = false;
 		const char *bsonFullKey;
-		int32		targetIndex;
+		int32		targetIndex = 0;
 
 		bsonFullKey = bsonKey;
 
@@ -1731,6 +1806,10 @@ fill_tuple_slot_agg(const BSON *bsonDocument,
 			compatibleTypes = true;
 		else
 			compatibleTypes = column_types_compatible(bsonType, pgTypeId);
+
+		/* If types are incompatible, leave this column null */
+		if (!compatibleTypes)
+			continue;
 
 		/* Fill in corresponding target value and null flag */
 		if (OidIsValid(pgArrayTypeId))
@@ -1834,11 +1913,11 @@ fill_tuple_slot_attr(const BSON *bsonDocument,
 		BSON_TYPE	bsonType = bsonIterType(&bsonIterator);
 		Oid			columnTypeId = InvalidOid;
 		Oid			columnArrayTypeId = InvalidOid;
-		int32		columnTypeMod;
+		int32		columnTypeMod = -1;
 		bool		compatibleTypes = false;
 		bool		handleFound = false;
 		const char *bsonFullKey;
-		int32		columnIndex;
+		int32		columnIndex = InvalidAttrNumber;
 
 		if (bsonDocumentKey != NULL)
 		{
@@ -1912,6 +1991,10 @@ fill_tuple_slot_attr(const BSON *bsonDocument,
 			compatibleTypes = true;
 		else
 			compatibleTypes = column_types_compatible(bsonType, columnTypeId);
+		
+		/* If types are incompatible, leave this column null */
+		if (!compatibleTypes)
+			continue;
 
 		/* Fill in corresponding column value and null flag */
 		if (OidIsValid(columnArrayTypeId))
@@ -2096,7 +2179,7 @@ column_value(BSON_ITERATOR *bsonIterator, Oid columnTypeId,
 			 int32 columnTypeMod)
 {
 	BSON_TYPE	bsonType = bsonIterType(bsonIterator);
-	Datum		columnValue;
+	Datum		columnValue = (Datum) 0;
 
 	switch (columnTypeId)
 	{
@@ -2651,7 +2734,7 @@ mongoAnalyzeForeignTable(Relation relation,
 	double		foreignTableSize;
 
 	foreignTableId = RelationGetRelid(relation);
-	documentCount = foreign_table_document_count(foreignTableId);
+	documentCount = foreign_table_document_count(foreignTableId, relation->rd_rel->relowner);
 
 	if (documentCount > 0.0)
 	{
@@ -2754,8 +2837,8 @@ mongo_acquire_sample_rows(Relation relation,
 	foreignTableId = RelationGetRelid(relation);
 	table = GetForeignTable(foreignTableId);
 	server = GetForeignServer(table->serverid);
-	user = GetUserMapping(GetUserId(), server->serverid);
-	options = mongo_get_options(foreignTableId);
+	user = GetUserMapping(relation->rd_rel->relowner, server->serverid);
+	options = mongo_get_options(foreignTableId, relation->rd_rel->relowner);
 
 	plannerInfo = (MongoPlanerInfo *) palloc0(sizeof(MongoPlanerInfo));
 	plannerInfo->rel_oid = foreignTableId;
@@ -3342,7 +3425,11 @@ mongo_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 		Index		sgref = get_pathtarget_sortgroupref(grouping_target, i);
 		ListCell   *l;
 
-		/* Check whether this expression is part of GROUP BY clause */
+		/*
+		 * Check whether this expression is part of GROUP BY clause.  Note we
+		 * check the whole GROUP BY clause not just processed_groupClause,
+		 * because we will ship all of it, cf. appendGroupByClause.
+		 */
 		if (sgref && get_sortgroupref_clause_noerr(sgref, query->groupClause))
 		{
 			TargetEntry *tle;
@@ -3414,10 +3501,10 @@ mongo_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 				 */
 				foreach(l, aggvars)
 				{
-					Expr	   *expr = (Expr *) lfirst(l);
+					Expr	   *aggref = (Expr *) lfirst(l);
 
-					if (IsA(expr, Aggref))
-						tlist = add_to_flat_tlist(tlist, list_make1(expr));
+					if (IsA(aggref, Aggref))
+						tlist = add_to_flat_tlist(tlist, list_make1(aggref));
 				}
 			}
 		}
@@ -3431,8 +3518,6 @@ mongo_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 	 */
 	if (havingQual)
 	{
-		ListCell   *lc;
-
 		foreach(lc, (List *) havingQual)
 		{
 			Expr	   *expr = (Expr *) lfirst(lc);
@@ -3452,6 +3537,9 @@ mongo_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 									  true,
 									  false,
 									  false,
+#if PG_VERSION_NUM >= 160000
+									  false,
+#endif
 									  root->qual_security_level,
 									  grouped_rel->relids,
 									  NULL,
@@ -3470,7 +3558,6 @@ mongo_foreign_grouping_ok(PlannerInfo *root, RelOptInfo *grouped_rel,
 	if (fpinfo->local_conds)
 	{
 		List	   *aggvars = NIL;
-		ListCell   *lc;
 
 		foreach(lc, fpinfo->local_conds)
 		{
@@ -3801,7 +3888,7 @@ mongo_reset_transmission_modes(int nestlevel)
 /*
  * mongo_get_join_planner_info
  */
-static void mongo_get_join_planner_info(RelOptInfo *scanrel, MongoPlanerInfo *plannerInfo)
+static void mongo_get_join_planner_info(PlannerInfo *root, RelOptInfo *scanrel, MongoPlanerInfo *plannerInfo)
 {
 	MongoFdwRelationInfo *f_joininfo = (MongoFdwRelationInfo *) scanrel->fdw_private;
 	RelOptInfo *outerrel = f_joininfo->outerrel;
@@ -3815,22 +3902,34 @@ static void mongo_get_join_planner_info(RelOptInfo *scanrel, MongoPlanerInfo *pl
 	/* Pickup information of JOIN relation */
 	if (IS_SIMPLE_REL(outerrel))
 	{
+		RangeTblEntry *rte = planner_rt_fetch(outerrel->relid, root);
+
 		join_info->outerrel_relid = outerrel->relid;
+		join_info->outerrel_rtekind = outerrel->rtekind;
 		join_info->outerrel_oid = f_joininfo->outerrel_oid;
+
+		if (rte->alias)
+			join_info->outerrel_aliasname = rte->alias->aliasname;
 	}
 	else if (IS_JOIN_REL(outerrel))
 	{
-		mongo_get_join_planner_info(outerrel, plannerInfo);
+		mongo_get_join_planner_info(root, outerrel, plannerInfo);
 	}
 
 	if (IS_SIMPLE_REL(innerrel))
 	{
+		RangeTblEntry *rte = planner_rt_fetch(innerrel->relid, root);
+
 		join_info->innerrel_relid = innerrel->relid;
+		join_info->innerrel_rtekind = innerrel->rtekind;
 		join_info->innerrel_oid = f_joininfo->innerrel_oid;
+
+		if (rte->alias)
+			join_info->innerrel_aliasname = rte->alias->aliasname;
 	}
 	else if (IS_JOIN_REL(innerrel))
 	{
-		mongo_get_join_planner_info(innerrel, plannerInfo);
+		mongo_get_join_planner_info(root, innerrel, plannerInfo);
 	}
 
 	if (IS_JOIN_REL(scanrel))

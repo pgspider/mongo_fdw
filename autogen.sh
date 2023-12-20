@@ -7,6 +7,7 @@
 #
 # Portions Copyright (c) 2012-2014, PostgreSQL Global Development Group
 # Portions Copyright (c) 2004-2022, EnterpriseDB Corporation.
+# Portions Copyright (c) 2021, TOSHIBA CORPORATION
 #
 # IDENTIFICATION
 #             autogen.sh
@@ -30,7 +31,7 @@ if ! [ -x "$(command -v cmake3)" ]; then
 fi
 
 ###
-# Pull the latest version of Monggo C Driver's master branch
+# Pull the latest version of Mongo C Driver's master branch
 #
 function checkout_mongo_driver
 {
@@ -42,7 +43,7 @@ function checkout_mongo_driver
 }
 
 ###
-# Pull the legacy branch from the Mongo C Driver's
+# Pull the legacy branch of the Mongo C Driver
 #
 function checkout_legacy_branch
 {
@@ -112,6 +113,7 @@ function create_config
 cleanup
 
 if [ "--with-legacy" = $1 ]; then
+	echo "Warning: The legacy driver support has been deprecated in mongo_fdw 5.4.0 and is expected to be removed entirely in a future release."
 	checkout_json_lib &&
 	checkout_legacy_branch &&
 	install_json_lib &&
